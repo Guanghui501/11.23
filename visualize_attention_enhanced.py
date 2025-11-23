@@ -324,10 +324,12 @@ def main():
                 attn_no_middle = attn_no_middle.mean(dim=1)[0].cpu().numpy()
 
                 # 获取文本tokens
-                # text可能是列表，需要先提取第一个元素
-                text_dict = text[0] if isinstance(text, list) else text
-                text_str = text_dict['input_ids'][0].cpu().numpy()
-                tokens = tokenizer.convert_ids_to_tokens(text_str)
+                # text是字符串列表，需要先tokenize
+                text_str = text[0] if isinstance(text, list) else text
+                # 对文本进行tokenization
+                encodings = tokenizer(text_str, return_tensors='pt', padding=True, truncation=True)
+                input_ids = encodings['input_ids'][0].cpu().numpy()
+                tokens = tokenizer.convert_ids_to_tokens(input_ids)
 
                 # 获取原子特征（如果可用）
                 atom_features = g.ndata.get('atom_features', None)
