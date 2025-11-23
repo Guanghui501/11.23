@@ -1012,17 +1012,6 @@ class EnhancedInterpretabilityAnalyzer:
         atom_to_text_avg = atom_to_text.mean(axis=0) if atom_to_text is not None else None  # [num_atoms, seq_len]
         text_to_atom_avg = text_to_atom.mean(axis=0) if text_to_atom is not None else None  # [seq_len, num_atoms]
 
-        # DEBUG: Check if atoms have different attention patterns
-        if atom_to_text_avg is not None:
-            print(f"\n🔍 DEBUG - atom_to_text_avg shape: {atom_to_text_avg.shape}")
-            print(f"   First 3 atoms, first 10 tokens:")
-            for i in range(min(3, atom_to_text_avg.shape[0])):
-                print(f"   Atom {i}: {atom_to_text_avg[i, :10]}")
-            # Check if all rows are identical
-            if num_atoms > 1:
-                rows_identical = np.allclose(atom_to_text_avg[0], atom_to_text_avg[1])
-                print(f"   ⚠️  Atoms 0 and 1 identical? {rows_identical}")
-
         # Merge WordPiece tokens if requested
         original_tokens = text_tokens.copy() if isinstance(text_tokens, list) else list(text_tokens)
         if merge_wordpiece and atom_to_text_avg is not None:
@@ -1031,21 +1020,10 @@ class EnhancedInterpretabilityAnalyzer:
                 # text_to_atom_avg is [seq_len, num_atoms], merge along first dim
                 merged_t2a = []
                 for indices in token_mapping:
-                    merged_t2a.append(text_to_atom_avg[indices, :].max(axis=0))
+                    merged_t2a.append(text_to_atom_avg[indices, :].mean(axis=0))
                 text_to_atom_avg = np.array(merged_t2a)
             seq_len = len(text_tokens)
             print(f"   - Merged tokens: {seq_len} (from {len(original_tokens)} original)")
-
-            # DEBUG: Check after merging
-            print(f"\n🔍 DEBUG - After merging, atom_to_text_avg shape: {atom_to_text_avg.shape}")
-            print(f"   First 3 atoms, first 10 merged tokens:")
-            for i in range(min(3, atom_to_text_avg.shape[0])):
-                print(f"   Atom {i}: {atom_to_text_avg[i, :10]}")
-            # Check if all rows are identical after merging
-            if num_atoms > 1:
-                rows_identical = np.allclose(atom_to_text_avg[0], atom_to_text_avg[1])
-                print(f"   ⚠️  After merging, Atoms 0 and 1 identical? {rows_identical}")
-            print(f"   Merged tokens (first 15): {text_tokens[:15]}")
 
         # Create visualization
         if show_all_heads:
@@ -1161,38 +1139,17 @@ class EnhancedInterpretabilityAnalyzer:
         if atom_to_text_avg is not None:
             # Top words attended by each atom (with stopword filtering)
             analysis['atom_top_words'] = {}
-
-            # DEBUG: Check the analysis section
-            print(f"\n🔍 DEBUG - Analyzing atom top words")
-            print(f"   atom_to_text_avg shape in analysis: {atom_to_text_avg.shape}")
-
             for i, element in enumerate(elements):
                 # 获取所有词的重要性
                 all_words = [(text_tokens[idx], float(atom_to_text_avg[i, idx]))
                             for idx in range(len(text_tokens[:seq_len]))]
-
-                # DEBUG: Print first atom's weights
-                if i < 3:
-                    print(f"\n   Atom {i} ({element}):")
-                    print(f"     Raw weights (first 5): {[w for _, w in all_words[:5]]}")
-
                 # 按重要性排序
                 all_words.sort(key=lambda x: x[1], reverse=True)
-
-                # DEBUG: Print sorted top words before filtering
-                if i < 3:
-                    print(f"     Top 5 before filtering: {[(w, f'{v:.4f}') for w, v in all_words[:5]]}")
-
                 # 过滤停用词
                 if filter_stopwords:
                     filtered_words = self.filter_stopwords_from_analysis(all_words)
                 else:
                     filtered_words = all_words
-
-                # DEBUG: Print after filtering
-                if i < 3:
-                    print(f"     Top 5 after filtering: {[(w, f'{v:.4f}') for w, v in filtered_words[:5]]}")
-
                 analysis['atom_top_words'][f"{element}_{i}"] = filtered_words[:top_k_words]
 
             # Overall most important words (averaged over all atoms)
