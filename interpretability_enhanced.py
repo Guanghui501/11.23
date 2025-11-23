@@ -1550,37 +1550,169 @@ class EnhancedInterpretabilityAnalyzer:
 
         # Visualize
         if save_path:
-            fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+            fig = plt.figure(figsize=(16, 12))
+            gs = fig.add_gridspec(3, 2, height_ratios=[2, 1.5, 1.2], hspace=0.3, wspace=0.3)
 
-            # 1. Top pairs bar chart
-            pairs_labels = [f"{p['atom']}→{p['word'][:10]}" for p in top_pairs[:15]]
-            pairs_weights = [p['weight'] for p in top_pairs[:15]]
+            # 1. Top pairs bar chart with full word display
+            ax0 = fig.add_subplot(gs[0, :])
 
-            axes[0].barh(range(len(pairs_labels)), pairs_weights, color='steelblue')
-            axes[0].set_yticks(range(len(pairs_labels)))
-            axes[0].set_yticklabels(pairs_labels, fontsize=9)
-            axes[0].set_xlabel('Attention Weight', fontsize=10)
-            axes[0].set_title(f'Top {len(pairs_labels)} Atom-Word Pairs', fontsize=12, fontweight='bold')
-            axes[0].invert_yaxis()
-            axes[0].grid(axis='x', alpha=0.3)
+            top_n = min(12, len(top_pairs))
+            pairs_labels = [f"{p['atom']} → {p['word']}" for p in top_pairs[:top_n]]
+            pairs_weights = [p['weight'] for p in top_pairs[:top_n]]
 
-            # 2. Semantic category pie chart
+            # Color by semantic category
+            colors = []
+            for pair in top_pairs[:top_n]:
+                word_lower = pair['word'].lower()
+                if any(word_lower in semantic_categories[cat] for cat in semantic_categories):
+                    for cat_name, cat_pairs in semantic_categories.items():
+                        if pair in cat_pairs:
+                            cat_colors_map = {
+                                'element_identification': '#FF6B6B',
+                                'structure_symmetry': '#4ECDC4',
+                                'space_group': '#45B7D1',
+                                'bonding_coordination': '#96CEB4',
+                                'geometry_polyhedra': '#FFEAA7',
+                                'connectivity': '#DFE6E9',
+                                'distortion': '#A29BFE',
+                                'framework_units': '#FD79A8',
+                                'equivalence': '#FDCB6E',
+                                'composition': '#6C5CE7',
+                                'other': '#95A5A6'
+                            }
+                            colors.append(cat_colors_map.get(cat_name, '#95A5A6'))
+                            break
+                else:
+                    colors.append('#95A5A6')
+
+            bars = ax0.barh(range(len(pairs_labels)), pairs_weights, color=colors, alpha=0.8, edgecolor='black', linewidth=0.8)
+
+            # Add value labels
+            for i, (bar, weight) in enumerate(zip(bars, pairs_weights)):
+                width = bar.get_width()
+                ax0.text(width * 1.02, bar.get_y() + bar.get_height()/2,
+                       f'{weight:.4f}',
+                       ha='left', va='center', fontsize=9, fontweight='bold')
+
+            ax0.set_yticks(range(len(pairs_labels)))
+            ax0.set_yticklabels(pairs_labels, fontsize=9)
+            ax0.set_xlabel('Attention Weight', fontsize=11)
+            ax0.set_title(f'Top {top_n} Atom-Word Pairs (Colored by Semantic Category)',
+                         fontsize=13, fontweight='bold', pad=10)
+            ax0.invert_yaxis()
+            ax0.grid(axis='x', alpha=0.3)
+
+            # 2. Semantic category distribution (left bottom)
+            ax1 = fig.add_subplot(gs[1, 0])
+
             cat_labels = []
             cat_sizes = []
-            cat_colors = ['#ff9999', '#66b3ff', '#99ff99', '#ffcc99', '#ff99cc']
+            cat_colors_list = []
+            cat_colors_map = {
+                'element_identification': '#FF6B6B',
+                'structure_symmetry': '#4ECDC4',
+                'space_group': '#45B7D1',
+                'bonding_coordination': '#96CEB4',
+                'geometry_polyhedra': '#FFEAA7',
+                'connectivity': '#DFE6E9',
+                'distortion': '#A29BFE',
+                'framework_units': '#FD79A8',
+                'equivalence': '#FDCB6E',
+                'composition': '#6C5CE7',
+                'other': '#95A5A6'
+            }
 
-            for i, (cat, stats) in enumerate(category_stats.items()):
-                cat_name = cat.replace('_', ' ').title()
-                cat_labels.append(f"{cat_name}\n({stats['count']} pairs)")
-                cat_sizes.append(stats['percentage'])
+            for cat, stats in sorted(category_stats.items(), key=lambda x: x[1]['count'], reverse=True):
+                if stats['count'] > 0:
+                    cat_name = cat.replace('_', ' ').title()
+                    cat_labels.append(f"{cat_name}\n({stats['count']})")
+                    cat_sizes.append(stats['percentage'])
+                    cat_colors_list.append(cat_colors_map.get(cat, '#95A5A6'))
 
             if cat_sizes:
-                axes[1].pie(cat_sizes, labels=cat_labels, autopct='%1.1f%%',
-                           colors=cat_colors[:len(cat_sizes)], startangle=90)
-                axes[1].set_title('Semantic Category Distribution', fontsize=12, fontweight='bold')
+                wedges, texts, autotexts = ax1.pie(cat_sizes, labels=cat_labels, autopct='%1.1f%%',
+                       colors=cat_colors_list, startangle=90, textprops={'fontsize': 8})
+                ax1.set_title('Semantic Category Distribution', fontsize=12, fontweight='bold')
 
-            plt.suptitle('Key Atom-Word Pairs Analysis', fontsize=14, fontweight='bold')
-            plt.tight_layout()
+            # 3. Category details bar chart (right bottom)
+            ax2 = fig.add_subplot(gs[1, 1])
+
+            if category_stats:
+                sorted_cats = sorted(category_stats.items(), key=lambda x: x[1]['count'], reverse=True)[:8]
+                cat_names = [c[0].replace('_', ' ').title() for c in sorted_cats]
+                cat_counts = [c[1]['count'] for c in sorted_cats]
+                cat_plot_colors = [cat_colors_map.get(c[0], '#95A5A6') for c in sorted_cats]
+
+                bars2 = ax2.barh(range(len(cat_names)), cat_counts, color=cat_plot_colors, alpha=0.8, edgecolor='black')
+                ax2.set_yticks(range(len(cat_names)))
+                ax2.set_yticklabels(cat_names, fontsize=9)
+                ax2.set_xlabel('Number of Pairs', fontsize=10)
+                ax2.set_title('Category Pair Counts', fontsize=12, fontweight='bold')
+                ax2.invert_yaxis()
+                ax2.grid(axis='x', alpha=0.3)
+
+                # Add count labels
+                for i, (bar, count) in enumerate(zip(bars2, cat_counts)):
+                    width = bar.get_width()
+                    ax2.text(width + 0.1, bar.get_y() + bar.get_height()/2,
+                           str(count),
+                           ha='left', va='center', fontsize=9, fontweight='bold')
+
+            # 4. Detailed table (bottom)
+            ax3 = fig.add_subplot(gs[2, :])
+            ax3.axis('off')
+
+            # Create table data
+            table_data = []
+            table_data.append(['Rank', 'Atom', 'Word', 'Weight', 'Category'])
+
+            for rank, pair in enumerate(top_pairs[:10], 1):
+                # Find category
+                category = 'Other'
+                for cat_name, cat_pairs in semantic_categories.items():
+                    if pair in cat_pairs:
+                        category = cat_name.replace('_', ' ').title()
+                        break
+
+                table_data.append([
+                    str(rank),
+                    pair['atom'],
+                    pair['word'],
+                    f"{pair['weight']:.4f}",
+                    category
+                ])
+
+            # Create table
+            table = ax3.table(cellText=table_data,
+                            cellLoc='center',
+                            loc='center',
+                            colWidths=[0.08, 0.15, 0.35, 0.12, 0.30])
+
+            # Style table
+            table.auto_set_font_size(False)
+            table.set_fontsize(9)
+            table.scale(1, 2)
+
+            # Style header row
+            for i in range(len(table_data[0])):
+                cell = table[(0, i)]
+                cell.set_facecolor('#34495E')
+                cell.set_text_props(weight='bold', color='white')
+
+            # Style data rows
+            for i in range(1, len(table_data)):
+                for j in range(len(table_data[0])):
+                    cell = table[(i, j)]
+                    if i % 2 == 0:
+                        cell.set_facecolor('#ECF0F1')
+                    else:
+                        cell.set_facecolor('#FFFFFF')
+                    cell.set_edgecolor('#BDC3C7')
+
+            ax3.set_title('Top 10 Atom-Word Pairs - Detailed View',
+                        fontsize=12, fontweight='bold', pad=15)
+
+            plt.suptitle('Key Atom-Word Pairs Analysis', fontsize=15, fontweight='bold', y=0.98)
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
             print(f"✅ 关键原子-词语对分析已保存: {save_path}")
             plt.close()
@@ -1834,42 +1966,124 @@ Effective: {stats['global_stats']['effective_connections']:.1f}%
 
         # Visualize
         if save_path:
-            fig, axes = plt.subplots(2, 1, figsize=(14, 10))
+            # Create figure with better layout for text integration
+            fig = plt.figure(figsize=(16, 12))
+            gs = fig.add_gridspec(3, 2, height_ratios=[1.5, 2, 1.2], width_ratios=[3, 1],
+                                 hspace=0.3, wspace=0.3)
 
-            # 1. Token-level importance over sequence
-            axes[0].plot(range(len(word_importance)), word_importance, color='steelblue', linewidth=2)
-            axes[0].fill_between(range(len(word_importance)), word_importance, alpha=0.3)
-            axes[0].axhline(word_importance.mean(), color='red', linestyle='--',
-                          label=f'Mean: {word_importance.mean():.4f}')
-            axes[0].set_xlabel('Token Position', fontsize=10)
-            axes[0].set_ylabel('Attention Weight', fontsize=10)
-            axes[0].set_title('Token-Level Importance Over Sequence', fontsize=12, fontweight='bold')
-            axes[0].legend()
-            axes[0].grid(alpha=0.3)
+            # 1. Token-level importance over sequence (top, spans both columns)
+            ax0 = fig.add_subplot(gs[0, :])
+            ax0.plot(range(len(word_importance)), word_importance, color='steelblue', linewidth=2)
+            ax0.fill_between(range(len(word_importance)), word_importance, alpha=0.3)
+            ax0.axhline(word_importance.mean(), color='red', linestyle='--',
+                       label=f'Mean: {word_importance.mean():.4f}')
+            ax0.set_xlabel('Token Position', fontsize=11)
+            ax0.set_ylabel('Attention Weight', fontsize=11)
+            ax0.set_title('Token-Level Importance Over Sequence', fontsize=13, fontweight='bold', pad=10)
+            ax0.legend(fontsize=10)
+            ax0.grid(alpha=0.3)
 
-            # 2. Sentence/region importance
+            # 2. Semantic Region Importance with integrated text (middle left)
             if regions:
-                region_labels = [f"Region {r['region_id']+1}" for r in regions[:10]]
-                region_scores = [r['avg_importance'] for r in regions[:10]]
-                colors_map = {'high': 'coral', 'medium': 'steelblue', 'low': 'lightgray'}
-                colors = [colors_map.get(r['contribution'], 'lightgray') for r in regions[:10]]
+                ax1 = fig.add_subplot(gs[1, :])
 
-                axes[1].barh(range(len(region_labels)), region_scores, color=colors)
-                axes[1].set_yticks(range(len(region_labels)))
-                axes[1].set_yticklabels(region_labels, fontsize=9)
-                axes[1].set_xlabel('Average Attention Weight', fontsize=10)
-                axes[1].set_title('Semantic Region Importance', fontsize=12, fontweight='bold')
-                axes[1].invert_yaxis()
-                axes[1].grid(axis='x', alpha=0.3)
+                # Prepare data for top regions
+                top_regions = regions[:8]  # Show top 8 regions
+                region_scores = [r['avg_importance'] for r in top_regions]
+                colors_map = {'high': '#FF6B6B', 'medium': '#4ECDC4', 'low': '#95E1D3'}
+                colors = [colors_map.get(r['contribution'], '#95E1D3') for r in top_regions]
 
-                # Add text preview on the right
-                for i, region in enumerate(regions[:10]):
-                    text_preview = region['text'][:40] + '...'
-                    axes[1].text(region_scores[i] + 0.001, i, text_preview,
-                               va='center', fontsize=7, style='italic')
+                # Create horizontal bar chart with more space
+                y_pos = np.arange(len(top_regions))
+                bars = ax1.barh(y_pos, region_scores, color=colors, alpha=0.8,
+                              edgecolor='black', linewidth=0.8)
 
-            plt.suptitle('Text Semantic Region Analysis', fontsize=14, fontweight='bold')
-            plt.tight_layout()
+                # Add value labels on bars
+                for i, (bar, score) in enumerate(zip(bars, region_scores)):
+                    width = bar.get_width()
+                    ax1.text(width * 0.02, bar.get_y() + bar.get_height()/2,
+                           f'{score:.4f}',
+                           ha='left', va='center', fontsize=9, fontweight='bold',
+                           color='white')
+
+                # Customize y-axis to show region text directly
+                region_labels_with_text = []
+                for i, region in enumerate(top_regions):
+                    region_id = region['region_id'] + 1
+                    text_preview = region['text'][:60]  # Longer preview
+                    if len(region['text']) > 60:
+                        text_preview += '...'
+                    label = f"Region {region_id}: {text_preview}"
+                    region_labels_with_text.append(label)
+
+                ax1.set_yticks(y_pos)
+                ax1.set_yticklabels(region_labels_with_text, fontsize=9)
+                ax1.set_xlabel('Average Attention Weight', fontsize=11)
+                ax1.set_title('Semantic Region Importance (with Text Preview)',
+                            fontsize=13, fontweight='bold', pad=10)
+                ax1.invert_yaxis()
+                ax1.grid(axis='x', alpha=0.3)
+
+                # Add legend for contribution levels
+                from matplotlib.patches import Patch
+                legend_elements = [
+                    Patch(facecolor='#FF6B6B', alpha=0.8, edgecolor='black', label='High Contribution'),
+                    Patch(facecolor='#4ECDC4', alpha=0.8, edgecolor='black', label='Medium Contribution')
+                ]
+                ax1.legend(handles=legend_elements, loc='lower right', fontsize=9)
+
+                # 3. Detailed region information table (bottom)
+                ax2 = fig.add_subplot(gs[2, :])
+                ax2.axis('off')
+
+                # Create table data
+                table_data = []
+                table_data.append(['Rank', 'Region ID', 'Text Content', 'Importance', 'Tokens', 'Level'])
+
+                for rank, region in enumerate(top_regions[:5], 1):  # Top 5 for table
+                    text_snippet = region['text'][:80]
+                    if len(region['text']) > 80:
+                        text_snippet += '...'
+                    table_data.append([
+                        str(rank),
+                        str(region['region_id'] + 1),
+                        text_snippet,
+                        f"{region['avg_importance']:.4f}",
+                        str(region['num_tokens']),
+                        region['contribution'].capitalize()
+                    ])
+
+                # Create table
+                table = ax2.table(cellText=table_data,
+                                cellLoc='left',
+                                loc='center',
+                                colWidths=[0.06, 0.08, 0.60, 0.10, 0.08, 0.08])
+
+                # Style table
+                table.auto_set_font_size(False)
+                table.set_fontsize(9)
+                table.scale(1, 2)
+
+                # Style header row
+                for i in range(len(table_data[0])):
+                    cell = table[(0, i)]
+                    cell.set_facecolor('#34495E')
+                    cell.set_text_props(weight='bold', color='white')
+
+                # Style data rows with alternating colors
+                for i in range(1, len(table_data)):
+                    for j in range(len(table_data[0])):
+                        cell = table[(i, j)]
+                        if i % 2 == 0:
+                            cell.set_facecolor('#ECF0F1')
+                        else:
+                            cell.set_facecolor('#FFFFFF')
+                        cell.set_edgecolor('#BDC3C7')
+
+                ax2.set_title('Top 5 Most Important Semantic Regions - Detailed View',
+                            fontsize=12, fontweight='bold', pad=15)
+
+            plt.suptitle('Text Semantic Region Analysis', fontsize=15, fontweight='bold', y=0.98)
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
             print(f"✅ 文本语义区域分析已保存: {save_path}")
             plt.close()
