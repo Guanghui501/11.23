@@ -279,22 +279,22 @@ class EnhancedInterpretabilityAnalyzer:
             merged_tokens.append(current_token)
             token_mapping.append(current_indices)
 
-        # Merge weights by taking maximum over grouped indices
-        # Using max preserves the strongest attention signal in merged tokens
+        # Merge weights by taking mean over grouped indices
+        # Using mean preserves the overall attention distribution better than max
         if weights is not None and len(weights.shape) >= 1:
             # Handle different weight shapes
             if len(weights.shape) == 1:
                 # [seq_len]
-                merged_weights = np.array([weights[indices].max() for indices in token_mapping])
+                merged_weights = np.array([weights[indices].mean() for indices in token_mapping])
             elif len(weights.shape) == 2:
                 # [num_atoms, seq_len] or [seq_len, num_atoms]
                 if weights.shape[-1] == len(tokens):
                     # Last dim is seq_len
-                    merged_weights = np.array([[weights[i, indices].max() for indices in token_mapping]
+                    merged_weights = np.array([[weights[i, indices].mean() for indices in token_mapping]
                                                for i in range(weights.shape[0])])
                 else:
                     # First dim is seq_len
-                    merged_weights = np.array([[weights[indices, i].max() for indices in token_mapping]
+                    merged_weights = np.array([[weights[indices, i].mean() for indices in token_mapping]
                                                for i in range(weights.shape[1])]).T
             else:
                 merged_weights = weights  # Don't merge for complex shapes
@@ -1230,8 +1230,8 @@ class EnhancedInterpretabilityAnalyzer:
         merged_head_attn = []
         for head in range(num_heads):
             head_attn = atom_to_text[head]  # [num_atoms, seq_len]
-            # Merge weights for this head
-            merged_head = np.array([[head_attn[atom, indices].max() for indices in token_mapping]
+            # Merge weights for this head using mean
+            merged_head = np.array([[head_attn[atom, indices].mean() for indices in token_mapping]
                                     for atom in range(num_atoms)])
             merged_head_attn.append(merged_head)
         merged_head_attn = np.array(merged_head_attn)  # [num_heads, num_atoms, merged_seq_len]
