@@ -21,14 +21,14 @@ def test_merge_logic():
 
     # Create different attention patterns for each atom
     np.random.seed(42)
-    atom_to_text_avg = np.random.rand(num_atoms, seq_len)
+    atom_to_text_avg = np.random.rand(num_atoms, seq_len) * 0.1  # Small random noise
 
-    # Make atom 0 focus on token 2
-    atom_to_text_avg[0, 2] = 0.9
+    # Make atom 0 focus on token 2 (set much higher value to dominate)
+    atom_to_text_avg[0, 2] = 10.0
     # Make atom 1 focus on token 5
-    atom_to_text_avg[1, 5] = 0.9
+    atom_to_text_avg[1, 5] = 10.0
     # Make atom 2 focus on token 8
-    atom_to_text_avg[2, 8] = 0.9
+    atom_to_text_avg[2, 8] = 10.0
 
     # Normalize
     atom_to_text_avg = atom_to_text_avg / atom_to_text_avg.sum(axis=1, keepdims=True)
