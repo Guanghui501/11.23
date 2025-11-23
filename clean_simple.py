@@ -9,25 +9,76 @@
 - longer
 - tilt angles
 
-可选删除英文停用词
+可选删除英文停用词（从 stopwords/en/ 文件夹）
 """
 
 import re
 import sys
 import csv
+import os
 
 
-# 英文停用词列表
-ENGLISH_STOPWORDS = {
-    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'but', 'by',
-    'for', 'from', 'has', 'had', 'have', 'he', 'her', 'his', 'in',
-    'is', 'it', 'its', 'of', 'on', 'or', 'that', 'the', 'to', 'was',
-    'were', 'will', 'with', 'this', 'these', 'those', 'i', 'you',
-    'we', 'they', 'what', 'which', 'who', 'when', 'where', 'why', 'how',
-    'all', 'each', 'every', 'both', 'few', 'more', 'most', 'other',
-    'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so',
-    'than', 'too', 'very', 'can', 'just', 'should', 'now'
-}
+def load_stopwords(source='nltk'):
+    """
+    从 stopwords/en/ 文件夹加载停用词
+
+    Parameters:
+    -----------
+    source : str
+        停用词来源，可选值:
+        - 'nltk' (默认)
+        - 'snowball'
+        - 'spacy'
+        - 或其他 stopwords/en/ 中的文件名（不含.txt）
+
+    Returns:
+    --------
+    set
+        停用词集合
+    """
+    # 构建文件路径
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # 映射常用名称到实际文件名
+    source_mapping = {
+        'nltk': 'nltk.txt',
+        'snowball': 'snowball_original.txt',
+        'spacy': 'spacy.txt',
+        'sklearn': 'scikitlearn.txt',
+        'smart': 'smart.txt',
+    }
+
+    # 获取文件名
+    if source in source_mapping:
+        filename = source_mapping[source]
+    elif source.endswith('.txt'):
+        filename = source
+    else:
+        filename = f"{source}.txt"
+
+    filepath = os.path.join(script_dir, 'stopwords', 'en', filename)
+
+    # 如果文件不存在，尝试直接使用文件名
+    if not os.path.exists(filepath):
+        print(f"⚠️  警告: 找不到停用词文件 {filepath}")
+        print(f"   使用默认停用词列表")
+        # 返回一个基本的停用词集合
+        return {
+            'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'but', 'by',
+            'for', 'from', 'has', 'had', 'have', 'he', 'her', 'his', 'in',
+            'is', 'it', 'its', 'of', 'on', 'or', 'that', 'the', 'to', 'was',
+            'were', 'will', 'with', 'this', 'these', 'those'
+        }
+
+    # 读取停用词文件
+    stopwords = set()
+    with open(filepath, 'r', encoding='utf-8') as f:
+        for line in f:
+            word = line.strip()
+            if word:  # 跳过空行
+                stopwords.add(word)
+
+    return stopwords
 
 
 def remove_stopwords(text, stopwords=None):
@@ -68,7 +119,7 @@ def remove_stopwords(text, stopwords=None):
     return ' '.join(cleaned_words)
 
 
-def clean_description(text, remove_stopwords_flag=False):
+def clean_description(text, stopwords_set=None):
     """
     删除包含特定关键词的句子
 
@@ -76,8 +127,8 @@ def clean_description(text, remove_stopwords_flag=False):
     -----------
     text : str
         原始描述文本
-    remove_stopwords_flag : bool
-        是否删除停用词
+    stopwords_set : set, optional
+        停用词集合，如果提供则删除停用词
 
     Returns:
     --------
@@ -117,9 +168,9 @@ def clean_description(text, remove_stopwords_flag=False):
         if not contains_keyword and sentence.strip():
             cleaned_sentence = sentence.strip()
 
-            # 如果启用删除停用词
-            if remove_stopwords_flag:
-                cleaned_sentence = remove_stopwords(cleaned_sentence)
+            # 如果提供了停用词集合，删除停用词
+            if stopwords_set:
+                cleaned_sentence = remove_stopwords(cleaned_sentence, stopwords_set)
 
             cleaned_sentences.append(cleaned_sentence)
 
@@ -133,7 +184,7 @@ def clean_description(text, remove_stopwords_flag=False):
     return result
 
 
-def process_csv(input_file, output_file, column='Description', remove_stopwords_flag=False):
+def process_csv(input_file, output_file, column='Description', stopwords_source=None):
     """
     处理CSV文件
 
@@ -145,15 +196,23 @@ def process_csv(input_file, output_file, column='Description', remove_stopwords_
         输出CSV文件路径
     column : str
         要处理的列名
-    remove_stopwords_flag : bool
-        是否删除停用词
+    stopwords_source : str, optional
+        停用词来源（如 'nltk', 'snowball', 'spacy'）
+        如果为 None，不删除停用词
     """
 
     print("=" * 80)
     print(" 简洁清理工具 - 删除包含关键词的句子")
-    if remove_stopwords_flag:
-        print(" [启用停用词删除]")
+    if stopwords_source:
+        print(f" [启用停用词删除 - 来源: {stopwords_source}]")
     print("=" * 80)
+
+    # 如果启用停用词删除，加载停用词
+    stopwords_set = None
+    if stopwords_source:
+        print(f"加载停用词: {stopwords_source}...")
+        stopwords_set = load_stopwords(stopwords_source)
+        print(f"✓ 已加载 {len(stopwords_set)} 个停用词")
 
     # 尝试使用pandas
     try:
@@ -167,7 +226,7 @@ def process_csv(input_file, output_file, column='Description', remove_stopwords_
     print(f"\n输入文件: {input_file}")
     print(f"输出文件: {output_file}")
     print(f"处理列: {column}")
-    print(f"删除停用词: {'是' if remove_stopwords_flag else '否'}")
+    print(f"删除停用词: {'是 (' + stopwords_source + ')' if stopwords_source else '否'}")
 
     if use_pandas:
         # 使用pandas处理
@@ -187,7 +246,7 @@ def process_csv(input_file, output_file, column='Description', remove_stopwords_
         # 处理每一行
         for i, row in df.iterrows():
             original = str(row[column])
-            cleaned = clean_description(original, remove_stopwords_flag)
+            cleaned = clean_description(original, stopwords_set)
 
             df.at[i, column] = cleaned
 
@@ -235,7 +294,7 @@ def process_csv(input_file, output_file, column='Description', remove_stopwords_
 
         for row in rows:
             original = row[column]
-            cleaned = clean_description(original, remove_stopwords_flag)
+            cleaned = clean_description(original, stopwords_set)
             row[column] = cleaned
 
             original_lengths.append(len(original))
@@ -276,16 +335,24 @@ def process_csv(input_file, output_file, column='Description', remove_stopwords_
 def main():
     """主函数"""
 
-    # 检查是否有 --remove-stopwords 或 --no-stopwords 参数
-    remove_stopwords_flag = False
+    # 检查停用词相关参数
+    stopwords_source = None
     args = sys.argv[1:]
 
-    if '--remove-stopwords' in args:
-        remove_stopwords_flag = True
-        args.remove('--remove-stopwords')
-    elif '--stopwords' in args:
-        remove_stopwords_flag = True
-        args.remove('--stopwords')
+    # 解析停用词参数
+    for i, arg in enumerate(args):
+        if arg.startswith('--stopwords='):
+            stopwords_source = arg.split('=', 1)[1]
+            args.pop(i)
+            break
+        elif arg == '--stopwords' or arg == '--remove-stopwords':
+            # 默认使用 nltk
+            stopwords_source = 'nltk'
+            args.pop(i)
+            # 检查下一个参数是否是停用词来源
+            if i < len(args) and not args[i].endswith('.csv'):
+                stopwords_source = args.pop(i)
+            break
 
     # 解析命令行参数
     if len(args) >= 2:
@@ -296,30 +363,38 @@ def main():
         print("\n使用方法:")
         print("  python clean_simple.py <输入文件> <输出文件> [列名] [选项]")
         print("\n选项:")
-        print("  --remove-stopwords  删除英文停用词")
-        print("  --stopwords         删除英文停用词（简写）")
+        print("  --stopwords[=来源]     删除英文停用词")
+        print("  --remove-stopwords     删除英文停用词（默认 nltk）")
+        print("\n停用词来源:")
+        print("  nltk      NLTK 停用词列表（默认）")
+        print("  snowball  Snowball 停用词列表")
+        print("  spacy     spaCy 停用词列表")
+        print("  sklearn   scikit-learn 停用词列表")
+        print("  smart     SMART 停用词列表")
+        print("  或任何 stopwords/en/ 文件夹中的文件名")
         print("\n示例:")
         print("  python clean_simple.py data.csv cleaned.csv")
         print("  python clean_simple.py data.csv cleaned.csv Description")
-        print("  python clean_simple.py data.csv cleaned.csv Description --remove-stopwords")
         print("  python clean_simple.py data.csv cleaned.csv --stopwords")
+        print("  python clean_simple.py data.csv cleaned.csv --stopwords=nltk")
+        print("  python clean_simple.py data.csv cleaned.csv --stopwords=snowball")
+        print("  python clean_simple.py data.csv cleaned.csv Description --stopwords=spacy")
         print("\n说明:")
         print("  - 删除包含 Å 的句子")
         print("  - 删除包含 bond length/lengths 的句子")
         print("  - 删除包含 shorter/longer 的句子")
         print("  - 删除包含 tilt angles 的句子")
-        print("  - 可选：删除英文停用词（a, an, the, is, of, to 等）")
+        print("  - 可选：删除英文停用词（从 stopwords/en/ 文件夹）")
         print("  - 直接替换原始列，不添加新列")
         sys.exit(1)
 
     # 处理文件
     try:
-        import os
         if not os.path.exists(input_file):
             print(f"\n❌ 错误: 找不到文件 {input_file}")
             sys.exit(1)
 
-        success = process_csv(input_file, output_file, column, remove_stopwords_flag)
+        success = process_csv(input_file, output_file, column, stopwords_source)
         sys.exit(0 if success else 1)
 
     except Exception as e:
