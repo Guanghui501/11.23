@@ -1,0 +1,4 @@
+id,formula,bandgap,description
+1,LiBa4Hf,0.0,"LiBa4Hf crystallizes in the cubic F-43m space group. The structure consists of four Li clusters inside a Ba4Hf framework. Ba(1) is bonded to six equivalent Ba(1) and three equivalent Hf(1) atoms. There are three shorter (3.60 Å) and three longer (3.66 Å) Ba(1)–Ba(1) bond lengths. All Ba(1)–Hf(1) bond lengths are 4.25 Å."
+2,AlAs,2.276,"AlAs is Zincblende, Sphalerite structured and crystallizes in the cubic F-43m space group. Al(1) is bonded to four equivalent As(1) atoms to form corner-sharing AlAs4 tetrahedra. All Al(1)–As(1) bond lengths are 2.48 Å."
+3,NaI,5.672,"NaI is Halite, Rock Salt structured and crystallizes in the cubic Fm-3m space group. Na(1) is bonded to six equivalent I(1) atoms to form a mixture of corner and edge-sharing NaI6 octahedra. All Na(1)–I(1) bond lengths are 3.21 Å."
