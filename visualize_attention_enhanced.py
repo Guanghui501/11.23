@@ -324,7 +324,9 @@ def main():
                 attn_no_middle = attn_no_middle.mean(dim=1)[0].cpu().numpy()
 
                 # 获取文本tokens
-                text_str = text['input_ids'][0].cpu().numpy()
+                # text可能是列表，需要先提取第一个元素
+                text_dict = text[0] if isinstance(text, list) else text
+                text_str = text_dict['input_ids'][0].cpu().numpy()
                 tokens = tokenizer.convert_ids_to_tokens(text_str)
 
                 # 获取原子特征（如果可用）
