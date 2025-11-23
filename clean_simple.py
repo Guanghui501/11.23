@@ -29,6 +29,7 @@ def load_stopwords(source='nltk'):
         - 'nltk' (默认)
         - 'snowball'
         - 'spacy'
+        - 'all' - 加载所有停用词文件
         - 或其他 stopwords/en/ 中的文件名（不含.txt）
 
     Returns:
@@ -38,6 +39,33 @@ def load_stopwords(source='nltk'):
     """
     # 构建文件路径
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    stopwords_dir = os.path.join(script_dir, 'stopwords', 'en')
+
+    # 如果选择 'all'，加载所有停用词文件
+    if source == 'all':
+        print("  正在加载所有停用词文件...")
+        all_stopwords = set()
+        file_count = 0
+
+        if not os.path.exists(stopwords_dir):
+            print(f"⚠️  警告: 找不到停用词目录 {stopwords_dir}")
+            return set()
+
+        for filename in os.listdir(stopwords_dir):
+            if filename.endswith('.txt') and filename != '_none.txt':
+                filepath = os.path.join(stopwords_dir, filename)
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            word = line.strip()
+                            if word:
+                                all_stopwords.add(word)
+                    file_count += 1
+                except Exception as e:
+                    print(f"  ⚠️  跳过文件 {filename}: {e}")
+
+        print(f"  ✓ 已从 {file_count} 个文件加载 {len(all_stopwords)} 个唯一停用词")
+        return all_stopwords
 
     # 映射常用名称到实际文件名
     source_mapping = {
@@ -56,7 +84,7 @@ def load_stopwords(source='nltk'):
     else:
         filename = f"{source}.txt"
 
-    filepath = os.path.join(script_dir, 'stopwords', 'en', filename)
+    filepath = os.path.join(stopwords_dir, filename)
 
     # 如果文件不存在，尝试直接使用文件名
     if not os.path.exists(filepath):
@@ -366,6 +394,7 @@ def main():
         print("  --stopwords[=来源]     删除英文停用词")
         print("  --remove-stopwords     删除英文停用词（默认 nltk）")
         print("\n停用词来源:")
+        print("  all       加载所有停用词文件（最彻底）⭐")
         print("  nltk      NLTK 停用词列表（默认）")
         print("  snowball  Snowball 停用词列表")
         print("  spacy     spaCy 停用词列表")
@@ -376,6 +405,7 @@ def main():
         print("  python clean_simple.py data.csv cleaned.csv")
         print("  python clean_simple.py data.csv cleaned.csv Description")
         print("  python clean_simple.py data.csv cleaned.csv --stopwords")
+        print("  python clean_simple.py data.csv cleaned.csv --stopwords=all")
         print("  python clean_simple.py data.csv cleaned.csv --stopwords=nltk")
         print("  python clean_simple.py data.csv cleaned.csv --stopwords=snowball")
         print("  python clean_simple.py data.csv cleaned.csv Description --stopwords=spacy")
