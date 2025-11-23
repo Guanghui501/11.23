@@ -165,6 +165,17 @@ def analyze_with_fine_grained_attention(
     print(f"   - atom_to_text shape: {fg_attn['atom_to_text'].shape}")
     print(f"   - text_to_atom shape: {fg_attn['text_to_atom'].shape}")
 
+    # ========== 诊断模型输出 START ==========
+    import sys
+    sys.path.insert(0, '/home/user/11.23')
+    from diagnose_model_attention import diagnose_fine_grained_attention
+
+    diagnosis = diagnose_fine_grained_attention(
+        fg_attn,
+        elements=[str(atoms_object.elements[i]) for i in range(atoms_object.num_atoms)]
+    )
+    # ========== 诊断模型输出 END ==========
+
     # Tokenize text to get token strings
     tokenizer = BertTokenizer.from_pretrained('m3rg-iitd/matscibert')
     tokens = tokenizer.tokenize(text)
