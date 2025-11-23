@@ -1860,18 +1860,38 @@ Effective: {stats['global_stats']['effective_connections']:.1f}%
         # Simple sentence segmentation (by period, or fixed length)
         sentences = text.split('. ')
 
-        # Map tokens to sentences
+        # Map tokens to sentences using better logic
         token_to_sentence = []
-        current_pos = 0
-        current_sentence = 0
+
+        # Reconstruct approximate text from tokens to match with sentences
+        reconstructed_text = ""
+        token_positions = []
 
         for token in text_tokens:
-            # Simple heuristic: check if we've moved to next sentence
-            token_clean = token.replace('#', '').lower()
-            if current_sentence < len(sentences) - 1:
-                if sentences[current_sentence].lower().find(token_clean) == -1:
-                    current_sentence += 1
-            token_to_sentence.append(current_sentence)
+            token_clean = token.replace('##', '').replace('[CLS]', '').replace('[SEP]', '').replace('[PAD]', '')
+            if token_clean:
+                if not token.startswith('##'):
+                    reconstructed_text += " " + token_clean
+                else:
+                    reconstructed_text += token_clean
+                token_positions.append(len(reconstructed_text))
+
+        # Now map each token to a sentence based on position
+        sentence_boundaries = []
+        cumulative_pos = 0
+        for sent in sentences:
+            cumulative_pos += len(sent) + 2  # +2 for ". "
+            sentence_boundaries.append(cumulative_pos)
+
+        for pos in token_positions:
+            sent_idx = 0
+            for i, boundary in enumerate(sentence_boundaries):
+                if pos <= boundary:
+                    sent_idx = i
+                    break
+            # Ensure sent_idx is within range
+            sent_idx = min(sent_idx, len(sentences) - 1)
+            token_to_sentence.append(sent_idx)
 
         # Aggregate importance by sentence
         sentence_importance = {}
