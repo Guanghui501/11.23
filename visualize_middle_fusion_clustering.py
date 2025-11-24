@@ -400,15 +400,154 @@ def main():
     print("=" * 80)
     model_with, config_with = load_model(args.checkpoint_with_fusion, args.device)
 
-    # 注意：这里需要根据你的实际数据加载方式调整
-    # 建议提供一个简单的dataloader
-    print("\n⚠️  注意：请确保提供了有效的数据加载器")
-    print("示例代码需要根据你的实际数据格式进行调整")
+    # 加载数据
+    print("\n" + "=" * 80)
+    print("3️⃣ 加载测试数据")
+    print("=" * 80)
 
-    # TODO: 实际使用时，在这里加载你的test_loader
-    # test_loader = ...
+    # 使用第一个模型的配置来加载数据
+    try:
+        from train_with_cross_modal_attention import load_dataset
 
-    print("\n✅ 分析完成！结果保存在:", output_dir)
+        # 构建数据路径
+        id_prop_file = os.path.join(args.data_dir, f'{args.dataset}/{args.property}/description.csv')
+
+        print(f"CIF目录: {cif_dir}")
+        print(f"描述文件: {id_prop_file}")
+
+        # 加载数据集
+        dataset_array = load_dataset(cif_dir, id_prop_file, args.dataset, args.property)
+
+        # 限制样本数量
+        if len(dataset_array) > args.n_samples:
+            import random
+            random.seed(42)
+            dataset_array = random.sample(dataset_array, args.n_samples)
+            print(f"随机选择 {args.n_samples} 个样本用于可视化")
+
+        # 创建数据加载器
+        print("创建数据加载器...")
+        train_loader, val_loader, test_loader, prepare_batch = get_train_val_loaders(
+            dataset_array=dataset_array,
+            target="target",
+            n_train=None,
+            n_val=None,
+            n_test=len(dataset_array),  # 全部用于测试
+            train_ratio=0.0,
+            val_ratio=0.0,
+            test_ratio=1.0,
+            batch_size=32,
+            workers=0,
+            pin_memory=False,
+        )
+
+        print(f"✓ 数据加载完成: {len(test_loader.dataset)} 样本")
+
+    except Exception as e:
+        print(f"❌ 数据加载失败: {e}")
+        print("请检查数据路径和格式")
+        return
+
+    # 提取特征 - 无中期融合
+    print("\n" + "=" * 80)
+    print("4️⃣ 提取特征 - 无中期融合模型")
+    print("=" * 80)
+    features_without, crystal_systems, targets, sample_ids = extract_features_with_crystal_system(
+        model_without, test_loader, cif_dir, args.device
+    )
+
+    # 提取特征 - 有中期融合
+    print("\n" + "=" * 80)
+    print("5️⃣ 提取特征 - 有中期融合模型")
+    print("=" * 80)
+    features_with, _, _, _ = extract_features_with_crystal_system(
+        model_with, test_loader, cif_dir, args.device
+    )
+
+    # 计算聚类指标
+    print("\n" + "=" * 80)
+    print("6️⃣ 计算聚类指标")
+    print("=" * 80)
+
+    print("无中期融合:")
+    metrics_without = compute_clustering_metrics(features_without, crystal_systems)
+    for metric, value in metrics_without.items():
+        print(f"  {metric}: {value:.4f}")
+
+    print("\n有中期融合:")
+    metrics_with = compute_clustering_metrics(features_with, crystal_systems)
+    for metric, value in metrics_with.items():
+        print(f"  {metric}: {value:.4f}")
+
+    # 降维
+    print("\n" + "=" * 80)
+    print("7️⃣ 降维可视化")
+    print("=" * 80)
+
+    embedded_without = apply_reduction(features_without, method=args.reduction_method, n_components=2)
+    embedded_with = apply_reduction(features_with, method=args.reduction_method, n_components=2)
+
+    # 创建可视化
+    print("\n" + "=" * 80)
+    print("8️⃣ 生成可视化图像")
+    print("=" * 80)
+
+    comparison_path = output_dir / "clustering_comparison.png"
+    plot_comparison(embedded_without, embedded_with, crystal_systems,
+                   metrics_without, metrics_with, comparison_path)
+
+    metrics_path = output_dir / "metrics_comparison.png"
+    plot_metrics_comparison(metrics_without, metrics_with, metrics_path)
+
+    # 保存结果摘要
+    summary_path = output_dir / "summary.txt"
+    with open(summary_path, 'w') as f:
+        f.write("=" * 80 + "\n")
+        f.write("中期融合特征聚类分析结果\n")
+        f.write("=" * 80 + "\n\n")
+        f.write(f"数据集: {args.dataset} - {args.property}\n")
+        f.write(f"样本数: {len(crystal_systems)}\n")
+        f.write(f"降维方法: {args.reduction_method.upper()}\n\n")
+
+        f.write("=" * 80 + "\n")
+        f.write("聚类指标对比\n")
+        f.write("=" * 80 + "\n\n")
+        f.write(f"{'指标':<30} {'无融合':<15} {'有融合':<15} {'改进':<15}\n")
+        f.write("-" * 80 + "\n")
+
+        for key in ['silhouette', 'davies_bouldin', 'calinski_harabasz']:
+            val_without = metrics_without[key]
+            val_with = metrics_with[key]
+
+            if not np.isnan(val_without) and not np.isnan(val_with):
+                if key == 'davies_bouldin':
+                    improvement = (val_without - val_with) / val_without * 100
+                    arrow = "↓" if val_with < val_without else "↑"
+                else:
+                    improvement = (val_with - val_without) / abs(val_without) * 100
+                    arrow = "↑" if val_with > val_without else "↓"
+
+                f.write(f"{key:<30} {val_without:<15.4f} {val_with:<15.4f} {arrow}{abs(improvement):<13.1f}%\n")
+            else:
+                f.write(f"{key:<30} {val_without:<15} {val_with:<15} {'N/A':<15}\n")
+
+        f.write("\n" + "=" * 80 + "\n")
+        f.write("晶系分布\n")
+        f.write("=" * 80 + "\n\n")
+
+        for cs in sorted(set(crystal_systems)):
+            count = crystal_systems.count(cs)
+            f.write(f"  {CRYSTAL_SYSTEMS.get(cs, cs):<15} {count:>6} 样本\n")
+
+    print(f"✓ 结果摘要已保存: {summary_path}")
+
+    print("\n" + "=" * 80)
+    print("✅ 分析完成！")
+    print("=" * 80)
+    print(f"\n结果保存在: {output_dir}")
+    print(f"  - clustering_comparison.png : 聚类对比图")
+    print(f"  - metrics_comparison.png    : 指标对比图")
+    print(f"  - summary.txt               : 结果摘要")
 
 
 if __name__ == '__main__':
