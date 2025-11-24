@@ -90,20 +90,19 @@ def create_objective(base_config_path=None, n_epochs=100, dataset="user_data", t
         use_middle_fusion = trial.suggest_categorical("use_middle_fusion", [True, False])
 
         if use_middle_fusion:
-            # 选择在哪些层插入中期融合
-            # 基于 alignn_layers 的值动态生成可选层
-            max_layer = alignn_layers - 1  # 层索引从 0 开始
+            # 使用固定的搜索空间（Optuna 要求所有试验中相同参数的选项必须一致）
+            # 定义所有可能的层组合
+            middle_fusion_layers = trial.suggest_categorical("middle_fusion_layers",
+                                                             ["1", "2", "1,2", "1,3", "2,3", "1,2,3"])
 
-            # 建议的融合层（可以是单层或多层）
-            # 为简单起见，我们从几个预定义选项中选择
-            if alignn_layers >= 4:
-                middle_fusion_layers_options = ["2", "1,3", "2,3", "1,2,3"]
-            elif alignn_layers >= 3:
-                middle_fusion_layers_options = ["1", "2", "1,2"]
-            else:
-                middle_fusion_layers_options = ["1"]
+            # 验证所选层是否与 alignn_layers 兼容
+            selected_layers = [int(x) for x in middle_fusion_layers.split(",")]
+            max_valid_layer = alignn_layers - 1  # 层索引从 0 开始
 
-            middle_fusion_layers = trial.suggest_categorical("middle_fusion_layers", middle_fusion_layers_options)
+            # 如果选择的层超出了可用层数，则跳过此试验
+            if any(layer > max_valid_layer for layer in selected_layers):
+                raise optuna.TrialPruned(f"Selected layers {middle_fusion_layers} incompatible with alignn_layers={alignn_layers}")
+
             middle_fusion_hidden_dim = trial.suggest_categorical("middle_fusion_hidden_dim", [64, 128, 256])
             middle_fusion_num_heads = trial.suggest_categorical("middle_fusion_num_heads", [1, 2, 4])
             middle_fusion_dropout = trial.suggest_float("middle_fusion_dropout", 0.0, 0.3)
