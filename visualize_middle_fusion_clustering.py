@@ -42,32 +42,34 @@ from config import TrainingConfig
 
 # 设置绘图风格
 sns.set_style("whitegrid")
-plt.rcParams['font.size'] = 11
-plt.rcParams['axes.labelsize'] = 12
-plt.rcParams['axes.titlesize'] = 13
-plt.rcParams['figure.titlesize'] = 15
-plt.rcParams['legend.fontsize'] = 10
+plt.rcParams['font.size'] = 14           # 增大基础字号
+plt.rcParams['axes.labelsize'] = 16      # 增大坐标轴标签
+plt.rcParams['axes.titlesize'] = 17      # 增大子图标题
+plt.rcParams['figure.titlesize'] = 19    # 增大总标题
+plt.rcParams['legend.fontsize'] = 13     # 增大图例字号
+plt.rcParams['xtick.labelsize'] = 13     # 增大刻度标签
+plt.rcParams['ytick.labelsize'] = 13
 
 
-# 晶系定义
+# 晶系定义（中英文对照）
 CRYSTAL_SYSTEMS = {
-    'cubic': '立方',
-    'hexagonal': '六方',
-    'trigonal': '三方',
-    'tetragonal': '四方',
-    'orthorhombic': '正交',
-    'monoclinic': '单斜',
-    'triclinic': '三斜'
+    'cubic': 'Cubic',
+    'hexagonal': 'Hexagonal',
+    'trigonal': 'Trigonal',
+    'tetragonal': 'Tetragonal',
+    'orthorhombic': 'Orthorhombic',
+    'monoclinic': 'Monoclinic',
+    'triclinic': 'Triclinic'
 }
 
 CRYSTAL_SYSTEM_COLORS = {
-    'cubic': '#e74c3c',        # 红色
-    'hexagonal': '#3498db',    # 蓝色
-    'trigonal': '#2ecc71',     # 绿色
-    'tetragonal': '#f39c12',   # 橙色
-    'orthorhombic': '#9b59b6', # 紫色
-    'monoclinic': '#1abc9c',   # 青色
-    'triclinic': '#e67e22'     # 深橙色
+    'cubic': '#e74c3c',        # 红色 (Red)
+    'hexagonal': '#3498db',    # 蓝色 (Blue)
+    'trigonal': '#27ae60',     # 深绿色 (Dark Green) - 改进
+    'tetragonal': '#f39c12',   # 橙色 (Orange)
+    'orthorhombic': '#9b59b6', # 紫色 (Purple)
+    'monoclinic': '#16a085',   # 深青色 (Dark Cyan) - 改进
+    'triclinic': '#d35400'     # 深橙色 (Dark Orange) - 改进
 }
 
 
@@ -328,14 +330,14 @@ def plot_comparison(embedded_without, embedded_with, crystal_systems,
     """
     创建对比图：有无中期融合的特征聚类对比
     """
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+    fig, axes = plt.subplots(1, 2, figsize=(18, 7.5))
 
     # 过滤掉unknown的样本用于绘图
     valid_mask = np.array(crystal_systems) != 'unknown'
 
     for idx, (embedded, metrics, title) in enumerate([
-        (embedded_without, metrics_without, '无中期融合'),
-        (embedded_with, metrics_with, '有中期融合')
+        (embedded_without, metrics_without, 'Without Middle Fusion'),
+        (embedded_with, metrics_with, 'With Middle Fusion')
     ]):
         ax = axes[idx]
 
@@ -353,23 +355,25 @@ def plot_comparison(embedded_without, embedded_with, crystal_systems,
                 embedded[mask, 1],
                 c=CRYSTAL_SYSTEM_COLORS.get(cs, 'gray'),
                 label=CRYSTAL_SYSTEMS.get(cs, cs),
-                alpha=0.6,
-                s=30,
+                alpha=0.7,          # 增加不透明度
+                s=50,               # 增大点的尺寸
                 edgecolors='white',
-                linewidths=0.5
+                linewidths=0.8      # 增加边框宽度
             )
 
-        ax.set_xlabel('维度 1', fontsize=12)
-        ax.set_ylabel('维度 2', fontsize=12)
+        ax.set_xlabel('Dimension 1', fontsize=16)
+        ax.set_ylabel('Dimension 2', fontsize=16)
         ax.set_title(f'{title}\n' +
                     f'Silhouette: {metrics["silhouette"]:.3f} | ' +
                     f'DB: {metrics["davies_bouldin"]:.3f} | ' +
                     f'CH: {metrics["calinski_harabasz"]:.1f}',
-                    fontsize=13, pad=15)
-        ax.legend(loc='best', framealpha=0.9, fontsize=10)
+                    fontsize=17, pad=15)
+        ax.legend(loc='best', framealpha=0.95, fontsize=13,
+                 markerscale=1.5)  # 增大图例中的marker尺寸
         ax.grid(True, alpha=0.3)
 
-    plt.suptitle('特征空间聚类对比 - 按晶系分组', fontsize=16, y=0.98)
+    plt.suptitle('Feature Space Clustering Comparison by Crystal System',
+                 fontsize=19, y=0.98, weight='bold')
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"✅ 图像已保存: {output_path}")
@@ -378,7 +382,7 @@ def plot_comparison(embedded_without, embedded_with, crystal_systems,
 
 def plot_metrics_comparison(metrics_without, metrics_with, output_path):
     """绘制聚类指标对比柱状图"""
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
 
     metric_names = ['Silhouette Score', 'Davies-Bouldin Index', 'Calinski-Harabasz Score']
     metric_keys = ['silhouette', 'davies_bouldin', 'calinski_harabasz']
@@ -388,7 +392,8 @@ def plot_metrics_comparison(metrics_without, metrics_with, output_path):
     for idx, (name, key) in enumerate(zip(metric_names, metric_keys)):
         ax = axes[idx]
         values = [metrics_without[key], metrics_with[key]]
-        bars = ax.bar(['无中期融合', '有中期融合'], values, color=colors, alpha=0.7, edgecolor='black')
+        bars = ax.bar(['Without Fusion', 'With Fusion'], values,
+                     color=colors, alpha=0.75, edgecolor='black', linewidth=1.5)
 
         # 添加数值标签
         for bar in bars:
@@ -396,18 +401,21 @@ def plot_metrics_comparison(metrics_without, metrics_with, output_path):
             if not np.isnan(height):
                 ax.text(bar.get_x() + bar.get_width()/2., height,
                        f'{height:.3f}',
-                       ha='center', va='bottom', fontsize=11, fontweight='bold')
+                       ha='center', va='bottom', fontsize=12, fontweight='bold')
 
-        ax.set_ylabel(name, fontsize=11)
-        ax.set_title(name, fontsize=12, pad=10)
+        ax.set_ylabel(name, fontsize=14)
+        ax.set_title(name, fontsize=15, pad=12)
         ax.grid(True, axis='y', alpha=0.3)
+        ax.tick_params(axis='x', labelsize=13)
+        ax.tick_params(axis='y', labelsize=12)
 
         # Davies-Bouldin: 越低越好
         if key == 'davies_bouldin':
             if values[1] < values[0]:
                 ax.set_facecolor('#eafaf1')  # 绿色背景表示改进
 
-    plt.suptitle('聚类质量指标对比\n(Silhouette和CH越高越好，DB越低越好)', fontsize=14, y=1.02)
+    plt.suptitle('Clustering Quality Metrics Comparison\n(Higher is better for Silhouette & CH; Lower is better for DB)',
+                 fontsize=16, y=1.00, weight='bold')
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"✅ 指标对比图已保存: {output_path}")
