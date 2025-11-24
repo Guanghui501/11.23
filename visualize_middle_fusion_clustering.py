@@ -405,9 +405,11 @@ def main():
     print("3️⃣ 加载测试数据")
     print("=" * 80)
 
-    # 使用第一个模型的配置来加载数据
+    # 使用train_mbj_with_optuna.py中的load_dataset函数
     try:
-        from train_with_cross_modal_attention import load_dataset
+        import sys
+        import csv
+        from tqdm import tqdm
 
         # 构建数据路径
         id_prop_file = os.path.join(args.data_dir, f'{args.dataset}/{args.property}/description.csv')
@@ -415,27 +417,75 @@ def main():
         print(f"CIF目录: {cif_dir}")
         print(f"描述文件: {id_prop_file}")
 
-        # 加载数据集
-        dataset_array = load_dataset(cif_dir, id_prop_file, args.dataset, args.property)
+        # 简化的数据加载（直接加载，不需要复杂的文本处理）
+        print("加载数据集...")
+        with open(id_prop_file, 'r') as f:
+            reader = csv.reader(f)
+            headings = next(reader)  # 跳过表头
+            data = [row for row in reader]
+
+        print(f"总样本数: {len(data)}")
 
         # 限制样本数量
-        if len(dataset_array) > args.n_samples:
+        if len(data) > args.n_samples:
             import random
             random.seed(42)
-            dataset_array = random.sample(dataset_array, args.n_samples)
+            data = random.sample(data, args.n_samples)
             print(f"随机选择 {args.n_samples} 个样本用于可视化")
+
+        # 构建dataset_array
+        dataset_array = []
+        skipped = 0
+
+        for j in tqdm(range(len(data)), desc="加载样本"):
+            try:
+                if args.dataset.lower() == 'jarvis':
+                    # JARVIS格式: id, composition, target, description, file_name
+                    sample_id = data[j][0]
+                    composition = data[j][1]
+                    target_val = float(data[j][2])
+                    description = data[j][3]
+                else:
+                    # 其他格式
+                    sample_id = data[j][0]
+                    target_val = float(data[j][1])
+                    description = ""
+
+                # 读取CIF文件
+                cif_file = os.path.join(cif_dir, f'{sample_id}.cif')
+                if not os.path.exists(cif_file):
+                    skipped += 1
+                    continue
+
+                atoms = Atoms.from_cif(cif_file)
+
+                info = {
+                    "atoms": atoms.to_dict(),
+                    "jid": sample_id,
+                    "text": description if description else atoms.composition.reduced_formula,
+                    "target": target_val
+                }
+
+                dataset_array.append(info)
+
+            except Exception as e:
+                skipped += 1
+                if skipped <= 5:
+                    print(f"跳过样本 {j}: {e}")
+
+        print(f"✓ 成功加载: {len(dataset_array)} 样本, 跳过: {skipped} 样本")
+
+        if len(dataset_array) == 0:
+            raise ValueError("没有成功加载任何样本！")
 
         # 创建数据加载器
         print("创建数据加载器...")
         train_loader, val_loader, test_loader, prepare_batch = get_train_val_loaders(
             dataset_array=dataset_array,
             target="target",
-            n_train=None,
-            n_val=None,
-            n_test=len(dataset_array),  # 全部用于测试
-            train_ratio=0.0,
-            val_ratio=0.0,
-            test_ratio=1.0,
+            n_train=0,
+            n_val=0,
+            n_test=len(dataset_array),
             batch_size=32,
             workers=0,
             pin_memory=False,
@@ -445,6 +495,8 @@ def main():
 
     except Exception as e:
         print(f"❌ 数据加载失败: {e}")
+        import traceback
+        traceback.print_exc()
         print("请检查数据路径和格式")
         return
 
