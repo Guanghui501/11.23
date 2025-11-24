@@ -478,8 +478,14 @@ def main():
         if len(dataset_array) == 0:
             raise ValueError("没有成功加载任何样本！")
 
+        # 调试：检查数据结构
+        print(f"\n调试信息:")
+        print(f"  数据类型: {type(dataset_array)}")
+        print(f"  第一个样本的键: {list(dataset_array[0].keys())}")
+        print(f"  第一个样本的target值: {dataset_array[0]['target']}")
+
         # 创建数据加载器
-        print("创建数据加载器...")
+        print("\n创建数据加载器...")
         train_loader, val_loader, test_loader, prepare_batch = get_train_val_loaders(
             dataset_array=dataset_array,
             target="target",
@@ -489,6 +495,12 @@ def main():
             batch_size=32,
             workers=0,
             pin_memory=False,
+            line_graph=True,
+            atom_features="cgcnn",
+            neighbor_strategy="k-nearest",
+            use_canonize=False,
+            cutoff=8.0,
+            max_neighbors=12,
         )
 
         print(f"✓ 数据加载完成: {len(test_loader.dataset)} 样本")
