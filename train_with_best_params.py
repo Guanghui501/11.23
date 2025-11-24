@@ -83,6 +83,11 @@ def train_with_best_params(
         use_fine_grained_attention=best_params["use_fine_grained_attention"],
         fine_grained_num_heads=best_params.get("fine_grained_num_heads", 8),
         fine_grained_dropout=best_params.get("fine_grained_dropout", 0.1),
+        use_middle_fusion=best_params.get("use_middle_fusion", False),
+        middle_fusion_layers=best_params.get("middle_fusion_layers", "2"),
+        middle_fusion_hidden_dim=best_params.get("middle_fusion_hidden_dim", 128),
+        middle_fusion_num_heads=best_params.get("middle_fusion_num_heads", 2),
+        middle_fusion_dropout=best_params.get("middle_fusion_dropout", 0.1),
     )
 
     config = TrainingConfig(
