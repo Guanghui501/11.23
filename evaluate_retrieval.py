@@ -25,6 +25,7 @@ import seaborn as sns
 from models.alignn import ALIGNN, ALIGNNConfig
 from data import get_train_val_loaders
 from config import TrainingConfig
+from utils_retrieval import load_model_checkpoint
 
 
 class RetrievalEvaluator:
@@ -479,15 +480,12 @@ def main():
         use_middle_fusion=True,
         graph_dropout=0.0  # 评估时不用 dropout
     )
-    model = ALIGNN(model_config).to(device)
+    model = ALIGNN(model_config)
 
-    # 加载权重
-    print(f"📥 加载检查点: {args.checkpoint}")
-    checkpoint = torch.load(args.checkpoint, map_location=device)
-    if 'model_state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['model_state_dict'])
-    else:
-        model.load_state_dict(checkpoint)
+    # 加载权重（智能加载，自动处理不同格式）
+    model, checkpoint_info = load_model_checkpoint(
+        model, args.checkpoint, device=device, verbose=True
+    )
 
     # 加载数据
     print(f"📊 加载 {args.split} 数据集...")

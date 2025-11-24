@@ -8,6 +8,7 @@ import torch
 from evaluate_retrieval import RetrievalEvaluator
 from models.alignn import ALIGNN, ALIGNNConfig
 from data import get_train_val_loaders
+from utils_retrieval import load_model_checkpoint
 
 
 def simple_retrieval_demo():
@@ -28,11 +29,11 @@ def simple_retrieval_demo():
 
     # 加载训练好的权重
     checkpoint_path = "checkpoints/best_model.pt"
-    print(f"📥 加载模型: {checkpoint_path}")
 
-    checkpoint = torch.load(checkpoint_path, map_location='cuda')
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model = model.to('cuda')
+    # 使用智能加载函数（自动处理不同的检查点格式）
+    model, checkpoint_info = load_model_checkpoint(
+        model, checkpoint_path, device='cuda', verbose=True
+    )
 
     # ========== 2. 加载数据 ==========
     print("📊 加载数据...")
@@ -157,10 +158,10 @@ def compare_models_retrieval(model_paths, dataloader, labels):
 
         # 加载模型
         model_config = ALIGNNConfig(name="alignn", classification=True)
-        model = ALIGNN(model_config).to('cuda')
+        model = ALIGNN(model_config)
 
-        checkpoint = torch.load(model_path, map_location='cuda')
-        model.load_state_dict(checkpoint['model_state_dict'])
+        # 使用智能加载函数
+        model, _ = load_model_checkpoint(model, model_path, device='cuda', verbose=False)
 
         # 快速评估
         metrics = quick_retrieval_check(model, dataloader, num_samples=500)
