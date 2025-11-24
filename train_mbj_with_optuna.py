@@ -159,8 +159,8 @@ def create_mbj_objective(
         )
 
         config = TrainingConfig(
-            dataset="user_data",  # 使用 user_data 模式
-            target="target",      # 列名为 'target'
+            dataset="jarvis",           # JARVIS 数据集
+            target="mbj_bandgap",       # MBJ Bandgap 性质
             model=model_config,
             epochs=n_epochs,
             batch_size=batch_size,
