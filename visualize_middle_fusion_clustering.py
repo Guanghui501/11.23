@@ -105,10 +105,13 @@ def extract_crystal_systems_from_dataset(dataset_array, cif_dir):
     """
     crystal_systems = []
     sample_ids = []
+    error_count = 0
+    file_not_found = 0
 
     print("🔄 从CIF文件提取晶系信息...")
+    print(f"   CIF目录: {cif_dir}")
 
-    for item in tqdm(dataset_array, desc="读取晶系"):
+    for idx, item in enumerate(tqdm(dataset_array, desc="读取晶系")):
         sample_id = item['jid']
         sample_ids.append(sample_id)
 
@@ -116,16 +119,48 @@ def extract_crystal_systems_from_dataset(dataset_array, cif_dir):
             cif_file = os.path.join(cif_dir, f"{sample_id}.cif")
             if os.path.exists(cif_file):
                 atoms = Atoms.from_cif(cif_file)
-                crystal_system = atoms.lattice.lattice_system
-                crystal_systems.append(crystal_system)
+
+                # 尝试多种方式获取晶系
+                crystal_system = None
+
+                # 方法1: lattice_system属性
+                if hasattr(atoms.lattice, 'lattice_system'):
+                    crystal_system = atoms.lattice.lattice_system
+                # 方法2: get_lattice_system()方法
+                elif hasattr(atoms.lattice, 'get_lattice_system'):
+                    crystal_system = atoms.lattice.get_lattice_system()
+                # 方法3: 从晶格参数计算
+                elif hasattr(atoms, 'get_spacegroup'):
+                    sg = atoms.get_spacegroup()
+                    if sg:
+                        crystal_system = sg.crystal_system
+
+                if crystal_system:
+                    crystal_systems.append(crystal_system.lower())
+                    if idx < 3:  # 打印前3个样本的调试信息
+                        print(f"\n   调试 - 样本 {sample_id}: 晶系 = {crystal_system}")
+                else:
+                    crystal_systems.append('unknown')
+                    if error_count < 3:
+                        print(f"\n   ⚠️ 样本 {sample_id}: 无法获取晶系")
+                    error_count += 1
             else:
                 crystal_systems.append('unknown')
+                if file_not_found < 3:
+                    print(f"\n   ⚠️ CIF文件不存在: {cif_file}")
+                file_not_found += 1
         except Exception as e:
             crystal_systems.append('unknown')
+            if error_count < 3:
+                print(f"\n   ⚠️ 样本 {sample_id} 异常: {str(e)}")
+            error_count += 1
 
-    print(f"✅ 晶系提取完成:")
+    print(f"\n✅ 晶系提取完成:")
     print(f"   总样本数: {len(crystal_systems)}")
-    print(f"   晶系分布:")
+    print(f"   提取成功: {len([cs for cs in crystal_systems if cs != 'unknown'])}")
+    print(f"   提取失败: {error_count}")
+    print(f"   文件缺失: {file_not_found}")
+    print(f"\n   晶系分布:")
     for cs in sorted(set(crystal_systems)):
         count = crystal_systems.count(cs)
         print(f"     {CRYSTAL_SYSTEMS.get(cs, cs)}: {count}")
