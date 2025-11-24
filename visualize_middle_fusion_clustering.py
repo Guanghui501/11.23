@@ -484,26 +484,46 @@ def main():
         print(f"  第一个样本的键: {list(dataset_array[0].keys())}")
         print(f"  第一个样本的target值: {dataset_array[0]['target']}")
 
-        # 创建数据加载器
+        # 创建数据加载器 - 直接创建测试集，避免空的训练/验证集问题
         print("\n创建数据加载器...")
-        train_loader, val_loader, test_loader, prepare_batch = get_train_val_loaders(
-            dataset_array=dataset_array,
+
+        # 使用 get_torch_dataset 直接创建数据集
+        from data import get_torch_dataset
+        from torch.utils.data import DataLoader
+
+        test_data = get_torch_dataset(
+            dataset=dataset_array,
+            id_tag="jid",
             target="target",
-            n_train=0,
-            n_val=0,
-            n_test=len(dataset_array),
-            batch_size=32,
-            workers=0,
-            pin_memory=False,
-            line_graph=True,
-            atom_features="cgcnn",
             neighbor_strategy="k-nearest",
+            atom_features="cgcnn",
             use_canonize=False,
+            name=f"{args.dataset}_{args.property}",
+            line_graph=True,
             cutoff=8.0,
             max_neighbors=12,
         )
 
-        print(f"✓ 数据加载完成: {len(test_loader.dataset)} 样本")
+        # 创建 DataLoader
+        test_loader = DataLoader(
+            test_data,
+            batch_size=32,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=False,
+            collate_fn=test_data.collate_line_graph,
+        )
+
+        # prepare_batch 函数
+        def prepare_batch(batch, device=args.device):
+            """准备批次数据"""
+            g, lg, text, target = batch
+            g = g.to(device)
+            lg = lg.to(device)
+            target = target.to(device)
+            return (g, lg, text), target
+
+        print(f"✓ 数据加载完成: {len(test_data)} 样本")
 
     except Exception as e:
         print(f"❌ 数据加载失败: {e}")
