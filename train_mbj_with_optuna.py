@@ -306,6 +306,21 @@ def main():
     parser.add_argument("--timeout", type=int, default=None, help="优化超时时间（秒）")
     parser.add_argument("--load_study", type=str, default=None, help="加载已有的 study 数据库路径")
 
+    # Pruning 参数
+    parser.add_argument("--pruner", type=str, default="median",
+                        choices=["median", "hyperband", "successive_halving", "percentile", "patient", "none"],
+                        help="Pruning 策略: median (稳定), hyperband (激进), successive_halving (更激进), percentile (基于百分位), patient (保守), none (不剪枝)")
+    parser.add_argument("--pruner_startup_trials", type=int, default=5,
+                        help="Pruner 启动试验数（在此之前不剪枝）")
+    parser.add_argument("--pruner_warmup_steps", type=int, default=10,
+                        help="Pruner 预热步数（每个试验的前N步不剪枝）")
+    parser.add_argument("--pruner_interval_steps", type=int, default=1,
+                        help="Pruner 检查间隔（每N步检查一次是否剪枝）")
+    parser.add_argument("--percentile_pruner_percentile", type=float, default=25.0,
+                        help="Percentile Pruner 的百分位阈值（0-100）")
+    parser.add_argument("--patient_pruner_patience", type=int, default=3,
+                        help="Patient Pruner 的耐心值（允许多少步无改善）")
+
     args = parser.parse_args()
 
     # 创建输出目录
@@ -319,6 +334,50 @@ def main():
     else:
         study_name = args.study_name
 
+    # 创建 Pruner
+    if args.pruner == "median":
+        pruner = optuna.pruners.MedianPruner(
+            n_startup_trials=args.pruner_startup_trials,
+            n_warmup_steps=args.pruner_warmup_steps,
+            interval_steps=args.pruner_interval_steps,
+        )
+        pruner_desc = f"MedianPruner (startup={args.pruner_startup_trials}, warmup={args.pruner_warmup_steps})"
+    elif args.pruner == "hyperband":
+        pruner = optuna.pruners.HyperbandPruner(
+            min_resource=1,
+            max_resource=args.n_epochs,
+            reduction_factor=3,
+        )
+        pruner_desc = f"HyperbandPruner (max_resource={args.n_epochs}, reduction_factor=3)"
+    elif args.pruner == "successive_halving":
+        pruner = optuna.pruners.SuccessiveHalvingPruner(
+            min_resource=1,
+            reduction_factor=4,
+            min_early_stopping_rate=0,
+        )
+        pruner_desc = "SuccessiveHalvingPruner (reduction_factor=4)"
+    elif args.pruner == "percentile":
+        pruner = optuna.pruners.PercentilePruner(
+            percentile=args.percentile_pruner_percentile,
+            n_startup_trials=args.pruner_startup_trials,
+            n_warmup_steps=args.pruner_warmup_steps,
+            interval_steps=args.pruner_interval_steps,
+        )
+        pruner_desc = f"PercentilePruner (percentile={args.percentile_pruner_percentile}%, startup={args.pruner_startup_trials})"
+    elif args.pruner == "patient":
+        pruner = optuna.pruners.PatientPruner(
+            wrapped_pruner=optuna.pruners.MedianPruner(
+                n_startup_trials=args.pruner_startup_trials,
+                n_warmup_steps=args.pruner_warmup_steps,
+                interval_steps=args.pruner_interval_steps,
+            ),
+            patience=args.patient_pruner_patience,
+        )
+        pruner_desc = f"PatientPruner (patience={args.patient_pruner_patience}, wrapped=MedianPruner)"
+    else:  # none
+        pruner = optuna.pruners.NopPruner()
+        pruner_desc = "NopPruner (不剪枝)"
+
     # 创建或加载 study
     if args.load_study:
         storage = f"sqlite:///{args.load_study}"
@@ -331,13 +390,10 @@ def main():
             direction="minimize",
             storage=storage,
             load_if_exists=True,
-            pruner=optuna.pruners.MedianPruner(
-                n_startup_trials=5,
-                n_warmup_steps=10,
-                interval_steps=1,
-            ),
+            pruner=pruner,
         )
         print(f"✓ 创建新 study: {study_name}")
+        print(f"✓ Pruning 策略: {pruner_desc}")
 
     # 创建目标函数
     objective = create_mbj_objective(
@@ -356,6 +412,9 @@ def main():
     print(f"早停轮数: {args.early_stopping}")
     print(f"输出目录: {output_dir}")
     print(f"并行作业数: {args.n_jobs}")
+    print(f"Pruning 策略: {args.pruner}")
+    if args.pruner != "none":
+        print(f"  {pruner_desc}")
     print("=" * 80 + "\n")
 
     # 运行优化
