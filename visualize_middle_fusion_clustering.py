@@ -95,23 +95,57 @@ def load_model(checkpoint_path, device='cpu'):
     return model, model_config
 
 
-def extract_features_with_crystal_system(model, data_loader, cif_dir, device='cpu'):
+def extract_crystal_systems_from_dataset(dataset_array, cif_dir):
     """
-    提取特征并获取晶系信息
+    从dataset_array中提取晶系信息
+
+    Returns:
+        crystal_systems: 晶系列表（与dataset_array顺序对应）
+        sample_ids: 样本ID列表
+    """
+    crystal_systems = []
+    sample_ids = []
+
+    print("🔄 从CIF文件提取晶系信息...")
+
+    for item in tqdm(dataset_array, desc="读取晶系"):
+        sample_id = item['jid']
+        sample_ids.append(sample_id)
+
+        try:
+            cif_file = os.path.join(cif_dir, f"{sample_id}.cif")
+            if os.path.exists(cif_file):
+                atoms = Atoms.from_cif(cif_file)
+                crystal_system = atoms.lattice.lattice_system
+                crystal_systems.append(crystal_system)
+            else:
+                crystal_systems.append('unknown')
+        except Exception as e:
+            crystal_systems.append('unknown')
+
+    print(f"✅ 晶系提取完成:")
+    print(f"   总样本数: {len(crystal_systems)}")
+    print(f"   晶系分布:")
+    for cs in sorted(set(crystal_systems)):
+        count = crystal_systems.count(cs)
+        print(f"     {CRYSTAL_SYSTEMS.get(cs, cs)}: {count}")
+
+    return crystal_systems, sample_ids
+
+
+def extract_features(model, data_loader, device='cpu'):
+    """
+    提取特征
 
     Returns:
         features: 特征矩阵 [n_samples, n_features]
-        crystal_systems: 晶系列表
         targets: 目标值
-        sample_ids: 样本ID
     """
     model.eval()
     features_list = []
-    crystal_systems = []
     targets_list = []
-    sample_ids = []
 
-    print("🔄 提取特征和晶系信息...")
+    print("🔄 提取特征...")
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(tqdm(data_loader, desc="处理批次")):
@@ -146,37 +180,10 @@ def extract_features_with_crystal_system(model, data_loader, cif_dir, device='cp
                 features_list.append(feat.cpu().numpy())
                 targets_list.append(target.cpu().numpy())
 
-                # 获取样本ID和晶系（从graph中）
-                batch_crystal_systems = []
-                for i in range(g.batch_size):
-                    try:
-                        # 尝试从graph的节点数据中获取ID
-                        if hasattr(g, 'ndata') and 'id' in g.ndata:
-                            sample_id = g.ndata['id'][i].item()
-                        else:
-                            sample_id = f"sample_{batch_idx}_{i}"
-
-                        sample_ids.append(sample_id)
-
-                        # 从CIF文件读取晶系
-                        if cif_dir and os.path.exists(cif_dir):
-                            cif_file = os.path.join(cif_dir, f"{sample_id}.cif")
-                            if os.path.exists(cif_file):
-                                atoms = Atoms.from_cif(cif_file)
-                                crystal_system = atoms.lattice.lattice_system
-                                batch_crystal_systems.append(crystal_system)
-                            else:
-                                batch_crystal_systems.append('unknown')
-                        else:
-                            batch_crystal_systems.append('unknown')
-                    except Exception as e:
-                        batch_crystal_systems.append('unknown')
-                        sample_ids.append(f"sample_{batch_idx}_{i}")
-
-                crystal_systems.extend(batch_crystal_systems)
-
             except Exception as e:
                 print(f"⚠️  处理batch {batch_idx}时出错: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
 
     # 合并所有特征
@@ -185,13 +192,9 @@ def extract_features_with_crystal_system(model, data_loader, cif_dir, device='cp
 
     print(f"✅ 提取完成:")
     print(f"   特征维度: {features.shape}")
-    print(f"   样本数: {len(crystal_systems)}")
-    print(f"   晶系分布:")
-    for cs in set(crystal_systems):
-        count = crystal_systems.count(cs)
-        print(f"     {CRYSTAL_SYSTEMS.get(cs, cs)}: {count}")
+    print(f"   样本数: {len(features)}")
 
-    return features, crystal_systems, targets, sample_ids
+    return features, targets
 
 
 def compute_clustering_metrics(features, labels):
@@ -525,6 +528,12 @@ def main():
 
         print(f"✓ 数据加载完成: {len(test_data)} 样本")
 
+        # 提取晶系信息（在创建data loader之前，从原始dataset_array）
+        print("\n" + "=" * 80)
+        print("4️⃣ 提取晶系信息")
+        print("=" * 80)
+        crystal_systems, sample_ids = extract_crystal_systems_from_dataset(dataset_array, cif_dir)
+
     except Exception as e:
         print(f"❌ 数据加载失败: {e}")
         import traceback
@@ -534,23 +543,23 @@ def main():
 
     # 提取特征 - 无中期融合
     print("\n" + "=" * 80)
-    print("4️⃣ 提取特征 - 无中期融合模型")
+    print("5️⃣ 提取特征 - 无中期融合模型")
     print("=" * 80)
-    features_without, crystal_systems, targets, sample_ids = extract_features_with_crystal_system(
-        model_without, test_loader, cif_dir, args.device
+    features_without, targets = extract_features(
+        model_without, test_loader, args.device
     )
 
     # 提取特征 - 有中期融合
     print("\n" + "=" * 80)
-    print("5️⃣ 提取特征 - 有中期融合模型")
+    print("6️⃣ 提取特征 - 有中期融合模型")
     print("=" * 80)
-    features_with, _, _, _ = extract_features_with_crystal_system(
-        model_with, test_loader, cif_dir, args.device
+    features_with, _ = extract_features(
+        model_with, test_loader, args.device
     )
 
     # 计算聚类指标
     print("\n" + "=" * 80)
-    print("6️⃣ 计算聚类指标")
+    print("7️⃣ 计算聚类指标")
     print("=" * 80)
 
     print("无中期融合:")
@@ -565,7 +574,7 @@ def main():
 
     # 降维
     print("\n" + "=" * 80)
-    print("7️⃣ 降维可视化")
+    print("8️⃣ 降维可视化")
     print("=" * 80)
 
     embedded_without = apply_reduction(features_without, method=args.reduction_method, n_components=2)
@@ -573,7 +582,7 @@ def main():
 
     # 创建可视化
     print("\n" + "=" * 80)
-    print("8️⃣ 生成可视化图像")
+    print("9️⃣ 生成可视化图像")
     print("=" * 80)
 
     comparison_path = output_dir / "clustering_comparison.png"
