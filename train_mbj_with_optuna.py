@@ -120,8 +120,28 @@ def load_dataset(cif_dir, id_prop_file, dataset, property_name):
 
     for j in tqdm(range(len(data)), desc="加载数据"):
         try:
-            id = data[j][0]
-            target = data[j][1]
+            # 解析 CSV 行（根据数据集类型）
+            if dataset.lower() == 'jarvis':
+                # JARVIS 格式: id, composition, target, description, file_name
+                id = data[j][0]
+                composition = data[j][1]
+                target = data[j][2]
+                crys_desc_full = data[j][3]  # 直接使用 CSV 中的描述
+                # file_name = data[j][4]  # 不使用
+            elif dataset.lower() == 'mp':
+                # MP 格式因 property 而异
+                if property_name == 'formation_energy':
+                    id, composition, target, _, crys_desc_full, _ = data[j]
+                elif property_name == 'band_gap':
+                    id, composition, _, target, crys_desc_full, _ = data[j]
+                else:
+                    id, composition, target, _, crys_desc_full, _ = data[j]
+            else:
+                # 通用格式：id, target
+                id = data[j][0]
+                target = data[j][1]
+                composition = None
+                crys_desc_full = None
 
             # 读取CIF文件
             cif_file = os.path.join(cif_dir, f'{id}.cif')
@@ -129,7 +149,10 @@ def load_dataset(cif_dir, id_prop_file, dataset, property_name):
                 raise FileNotFoundError(f"CIF文件不存在: {cif_file}")
 
             atoms = Atoms.from_cif(cif_file)
-            crys_desc_full = normalize(atoms.composition.reduced_formula)
+
+            # 如果 CSV 没有提供描述，则从 CIF 生成
+            if crys_desc_full is None:
+                crys_desc_full = normalize(atoms.composition.reduced_formula)
 
             info = {
                 "atoms": atoms.to_dict(),
@@ -143,7 +166,7 @@ def load_dataset(cif_dir, id_prop_file, dataset, property_name):
         except Exception as e:
             skipped += 1
             if skipped <= 5:  # 只显示前5个错误
-                print(f"跳过样本 {id}: {e}")
+                print(f"跳过样本 {id if 'id' in locals() else j}: {e}")
 
     print(f"\n成功加载: {len(dataset_array)} 样本")
     print(f"跳过: {skipped} 样本\n")
