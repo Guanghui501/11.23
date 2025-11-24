@@ -189,7 +189,6 @@ def create_mbj_objective(
                 batch_size=config.batch_size,
                 atom_features=config.atom_features,
                 neighbor_strategy=config.neighbor_strategy,
-                standardize=False,
                 id_tag=config.id_tag,
                 pin_memory=config.pin_memory,
                 workers=config.num_workers,
@@ -199,11 +198,9 @@ def create_mbj_objective(
                 cutoff=config.cutoff,
                 max_neighbors=config.max_neighbors,
                 output_dir=config.output_dir,
-                classification_threshold=config.classification_threshold,
                 target_multiplication_factor=config.target_multiplication_factor,
                 standard_scalar_and_pca=config.standard_scalar_and_pca,
                 keep_data_order=config.keep_data_order,
-                output_features=config.model.output_features,
             )
             print(f"✓ 训练集: {len(train_loader.dataset)} 样本")
             print(f"✓ 验证集: {len(val_loader.dataset)} 样本")

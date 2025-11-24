@@ -165,7 +165,6 @@ def create_objective(base_config_path=None, n_epochs=100, dataset="user_data", t
                 batch_size=config.batch_size,
                 atom_features=config.atom_features,
                 neighbor_strategy=config.neighbor_strategy,
-                standardize=False,
                 id_tag=config.id_tag,
                 pin_memory=config.pin_memory,
                 workers=config.num_workers,
@@ -175,11 +174,9 @@ def create_objective(base_config_path=None, n_epochs=100, dataset="user_data", t
                 cutoff=config.cutoff,
                 max_neighbors=config.max_neighbors,
                 output_dir=config.output_dir,
-                classification_threshold=config.classification_threshold,
                 target_multiplication_factor=config.target_multiplication_factor,
                 standard_scalar_and_pca=config.standard_scalar_and_pca,
                 keep_data_order=config.keep_data_order,
-                output_features=config.model.output_features,
             )
         except Exception as e:
             print(f"Trial {trial.number} failed during data loading: {e}")
