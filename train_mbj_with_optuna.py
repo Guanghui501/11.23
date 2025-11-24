@@ -18,6 +18,7 @@
 
 import os
 import sys
+import csv
 import json
 import argparse
 import torch
@@ -25,6 +26,7 @@ import optuna
 from optuna.trial import TrialState
 from pathlib import Path
 from datetime import datetime
+from tqdm import tqdm
 
 from config import TrainingConfig
 from models.alignn import ALIGNNConfig, ALIGNN
@@ -33,14 +35,125 @@ from torch import nn
 from ignite.engine import create_supervised_trainer, create_supervised_evaluator, Events
 from ignite.metrics import Loss, MeanAbsoluteError
 
+# 导入数据加载所需的库
+from jarvis.core.atoms import Atoms
+from transformers import AutoTokenizer, AutoModel
+from tokenizers.normalizers import BertNormalizer
+import numpy as np
+
 
 device = "cpu"
 if torch.cuda.is_available():
     device = torch.device("cuda")
 
 
+def load_dataset(cif_dir, id_prop_file, dataset, property_name):
+    """加载本地数据集
+
+    Args:
+        cif_dir: CIF 文件目录
+        id_prop_file: 描述文件路径 (description.csv)
+        dataset: 数据集名称
+        property_name: 属性名称
+
+    Returns:
+        dataset_array: 包含样本字典的列表
+    """
+    print(f"\n{'='*60}")
+    print(f"加载数据集: {dataset} - {property_name}")
+    print(f"CIF目录: {cif_dir}")
+    print(f"描述文件: {id_prop_file}")
+    print(f"{'='*60}\n")
+
+    # 读取CSV文件
+    with open(id_prop_file, 'r') as f:
+        reader = csv.reader(f)
+        headings = next(reader)
+        data = [row for row in reader]
+
+    print(f"总样本数: {len(data)}")
+
+    # 文本归一化器
+    norm = BertNormalizer(lowercase=False, strip_accents=True,
+                         clean_text=True, handle_chinese_chars=True)
+
+    # 加载词汇映射 - 智能路径查找
+    possible_paths = [
+        'vocab_mappings.txt',
+        './vocab_mappings.txt',
+        os.path.join(os.path.dirname(__file__), 'vocab_mappings.txt'),
+        os.path.join(os.path.dirname(__file__), 'crysmmnet-main/src/vocab_mappings.txt'),
+        '../vocab_mappings.txt',
+        '../../vocab_mappings.txt',
+    ]
+
+    vocab_file = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            vocab_file = path
+            break
+
+    if vocab_file is None:
+        raise FileNotFoundError(
+            "无法找到 vocab_mappings.txt 文件。请确保文件存在于正确位置。\n"
+            f"尝试过的路径: {possible_paths}"
+        )
+
+    print(f"使用词汇映射文件: {vocab_file}")
+    with open(vocab_file, 'r') as f:
+        mappings = f.read().strip().split('\n')
+    mappings = {m[0]: m[2:] for m in mappings}
+
+    def normalize(text):
+        text = [norm.normalize_str(s) for s in text.split('\n')]
+        out = []
+        for s in text:
+            norm_s = ''
+            for c in s:
+                norm_s += mappings.get(c, ' ')
+            out.append(norm_s)
+        return '\n'.join(out)
+
+    # 构建数据集
+    dataset_array = []
+    skipped = 0
+
+    for j in tqdm(range(len(data)), desc="加载数据"):
+        try:
+            id = data[j][0]
+            target = data[j][1]
+
+            # 读取CIF文件
+            cif_file = os.path.join(cif_dir, f'{id}.cif')
+            if not os.path.exists(cif_file):
+                raise FileNotFoundError(f"CIF文件不存在: {cif_file}")
+
+            atoms = Atoms.from_cif(cif_file)
+            crys_desc_full = normalize(atoms.composition.reduced_formula)
+
+            info = {
+                "atoms": atoms.to_dict(),
+                "jid": id,
+                "text": crys_desc_full,
+                "target": float(target)
+            }
+
+            dataset_array.append(info)
+
+        except Exception as e:
+            skipped += 1
+            if skipped <= 5:  # 只显示前5个错误
+                print(f"跳过样本 {id}: {e}")
+
+    print(f"\n成功加载: {len(dataset_array)} 样本")
+    print(f"跳过: {skipped} 样本\n")
+
+    return dataset_array
+
+
 def create_mbj_objective(
-    root_dir="../dataset/",
+    dataset_array,
+    target_property="target",
     n_epochs=100,
     early_stopping=20,
     batch_size_options=None,
@@ -48,7 +161,8 @@ def create_mbj_objective(
     """创建 MBJ Bandgap 优化目标函数
 
     Args:
-        root_dir: 数据集根目录
+        dataset_array: 预加载的数据集数组
+        target_property: 目标属性名称（默认"target"）
         n_epochs: 每次试验的训练轮数
         early_stopping: 早停轮数
         batch_size_options: 批次大小选项列表
@@ -159,8 +273,8 @@ def create_mbj_objective(
         )
 
         config = TrainingConfig(
-            dataset="jarvis",           # JARVIS 数据集
-            target="mbj_bandgap",       # MBJ Bandgap 性质
+            dataset="user_data",        # 使用本地数据
+            target=target_property,     # 目标属性
             model=model_config,
             epochs=n_epochs,
             batch_size=batch_size,
@@ -178,7 +292,7 @@ def create_mbj_objective(
         try:
             print("加载数据...")
             train_loader, val_loader, test_loader, prepare_batch = get_train_val_loaders(
-                dataset=config.dataset,
+                dataset_array=dataset_array,  # 使用预加载的数据集
                 target=config.target,
                 n_train=config.n_train,
                 n_val=config.n_val,
@@ -298,12 +412,14 @@ def main():
     """主函数"""
     parser = argparse.ArgumentParser(description="使用 Optuna 优化 MBJ Bandgap 预测")
     parser.add_argument("--root_dir", type=str, default="../dataset/", help="数据集根目录")
+    parser.add_argument("--dataset", type=str, default="jarvis", help="数据集名称（jarvis/mp等）")
+    parser.add_argument("--property", type=str, default="mbj_bandgap", help="目标性质名称")
     parser.add_argument("--n_trials", type=int, default=50, help="Optuna 试验次数")
     parser.add_argument("--n_epochs", type=int, default=100, help="每次试验的训练轮数")
     parser.add_argument("--early_stopping", type=int, default=20, help="早停轮数")
     parser.add_argument("--output_dir", type=str, default="mbj_optuna_results", help="输出目录")
     parser.add_argument("--study_name", type=str, default=None, help="Optuna study 名称")
-    parser.add_argument("--n_jobs", type=int, default=1, help="并行作业数（-1 表示使用所有 CPU）")
+    parser.add_argument("--n_jobs", type=int, default=1, help="并行作业数（-1 表示使用 CPU）")
     parser.add_argument("--timeout", type=int, default=None, help="优化超时时间（秒）")
     parser.add_argument("--load_study", type=str, default=None, help="加载已有的 study 数据库路径")
 
@@ -396,18 +512,56 @@ def main():
         print(f"✓ 创建新 study: {study_name}")
         print(f"✓ Pruning 策略: {pruner_desc}")
 
+    # 加载本地数据集
+    print("\n" + "=" * 80)
+    print("加载本地数据集")
+    print("=" * 80)
+
+    # 构建数据路径
+    if args.dataset.lower() == 'jarvis':
+        cif_dir = os.path.join(args.root_dir, f'jarvis/{args.property}/cif/')
+        id_prop_file = os.path.join(args.root_dir, f'jarvis/{args.property}/description.csv')
+    elif args.dataset.lower() == 'mp':
+        cif_dir = os.path.join(args.root_dir, 'mp_2018_new/')
+        id_prop_file = os.path.join(args.root_dir, 'mp_2018_new/mat_text.csv')
+    else:
+        raise ValueError(f"不支持的数据集: {args.dataset}")
+
+    # 检查路径是否存在
+    if not os.path.exists(cif_dir):
+        raise FileNotFoundError(
+            f"CIF目录不存在: {cif_dir}\n"
+            f"请检查 --root_dir 和 --dataset 参数"
+        )
+    if not os.path.exists(id_prop_file):
+        raise FileNotFoundError(
+            f"描述文件不存在: {id_prop_file}\n"
+            f"请检查 --root_dir 和 --property 参数"
+        )
+
+    # 加载数据
+    dataset_array = load_dataset(cif_dir, id_prop_file, args.dataset, args.property)
+
+    if len(dataset_array) == 0:
+        raise ValueError("数据集为空！请检查数据文件。")
+
+    print(f"✓ 成功加载 {len(dataset_array)} 个样本\n")
+
     # 创建目标函数
     objective = create_mbj_objective(
-        root_dir=args.root_dir,
+        dataset_array=dataset_array,
+        target_property="target",  # load_dataset 使用 "target" 键
         n_epochs=args.n_epochs,
         early_stopping=args.early_stopping,
     )
 
     print("\n" + "=" * 80)
-    print("MBJ Bandgap Optuna 超参数优化")
+    print("Optuna 超参数优化")
     print("=" * 80)
-    print(f"数据集目录: {args.root_dir}")
-    print(f"目标性质: mbj_bandgap")
+    print(f"数据集: {args.dataset}")
+    print(f"目标性质: {args.property}")
+    print(f"数据目录: {args.root_dir}")
+    print(f"样本数量: {len(dataset_array)}")
     print(f"试验次数: {args.n_trials}")
     print(f"每次试验轮数: {args.n_epochs}")
     print(f"早停轮数: {args.early_stopping}")
