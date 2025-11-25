@@ -488,7 +488,7 @@ def create_config(args):
         stopwords_dir=args.stopwords_dir,
         link="identity",
         zero_inflated=False,
-        classification=False
+        classification=bool(args.classification)
     )
 
     config = {
