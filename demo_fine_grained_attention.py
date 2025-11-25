@@ -24,7 +24,7 @@ from transformers import BertTokenizer
 import numpy as np
 
 # Import from the same module used for training
-from models.alignn import ALIGNN, ALIGNNConfig
+from models.dense_alignn import DenseALIGNN, DenseALIGNNConfig
 from interpretability_enhanced import EnhancedInterpretabilityAnalyzer
 
 
@@ -62,8 +62,8 @@ def load_model_with_fine_grained_attention(checkpoint_path, device='cuda'):
         print(f"   - use_middle_fusion: {use_middle_fusion}")
         print(f"   - use_fine_grained_attention: {use_fine_grained}")
 
-        config = ALIGNNConfig(
-            name="alignn",
+        config = DenseALIGNNConfig(
+            name="dense_alignn",
             alignn_layers=4,
             gcn_layers=4,
             atom_input_features=92,
@@ -77,7 +77,7 @@ def load_model_with_fine_grained_attention(checkpoint_path, device='cuda'):
         )
 
     # Create model
-    model = ALIGNN(config)
+    model = DenseALIGNN(config)
 
     # Load weights
     checkpoint_state = checkpoint.get('model', checkpoint)

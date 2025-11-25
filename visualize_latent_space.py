@@ -46,8 +46,8 @@ def load_model_and_data(checkpoint_path, config_file=None):
         raise ValueError("Checkpoint中未找到模型配置信息")
 
     # 重新构建模型
-    from models.alignn import ALIGNN
-    model = ALIGNN(model_config)
+    from models.dense_alignn import DenseALIGNN
+    model = DenseALIGNN(model_config)
     model.load_state_dict(checkpoint['model'])
     model.eval()
 

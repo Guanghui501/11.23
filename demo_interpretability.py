@@ -412,7 +412,7 @@ def main():
     """
     # 1. 加载模型
     checkpoint = torch.load('best_model.pt')
-    model = ALIGNN(config.model)
+    model = DenseALIGNN(config.model)
     model.load_state_dict(checkpoint['model'])
     model.eval()
 

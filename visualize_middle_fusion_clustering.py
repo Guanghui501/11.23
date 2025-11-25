@@ -37,7 +37,7 @@ except ImportError:
 # 导入数据和模型
 from jarvis.core.atoms import Atoms
 from data import get_train_val_loaders
-from models.alignn import ALIGNN
+from models.dense_alignn import DenseALIGNN
 from config import TrainingConfig
 
 # 设置绘图风格
@@ -82,7 +82,7 @@ def load_model(checkpoint_path, device='cpu'):
     if model_config is None:
         raise ValueError("Checkpoint中未找到模型配置")
 
-    model = ALIGNN(model_config)
+    model = DenseALIGNN(model_config)
     model.load_state_dict(checkpoint['model'])
     model.eval()
     model.to(device)

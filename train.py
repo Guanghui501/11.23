@@ -44,7 +44,7 @@ from ignite.metrics import Loss, MeanAbsoluteError
 from torch import nn
 from data import get_train_val_loaders
 from config import TrainingConfig
-from models.alignn import ALIGNN
+from models.dense_alignn import DenseALIGNN
 from jarvis.db.jsonutils import dumpjson
 import json
 import os
@@ -137,7 +137,7 @@ def train_dgl(config: Union[TrainingConfig, Dict[str, Any]], model: nn.Module = 
         model: Model to train
         train_val_test_loaders: Data loaders
         resume: Resume from checkpoint
-        model_config: Model configuration (ALIGNNConfig) to save in checkpoint
+        model_config: Model configuration (DenseALIGNNConfig) to save in checkpoint
     """
     # print(config)
     # if type(config) is dict:
@@ -188,7 +188,7 @@ def train_dgl(config: Union[TrainingConfig, Dict[str, Any]], model: nn.Module = 
         config.model.classification = True
 
     # define network, optimizer, scheduler
-    _model = {"alignn": ALIGNN}
+    _model = {"dense_alignn": DenseALIGNN}
     if model is None:
         net = _model.get(config.model.name)(config.model)
     else:
@@ -453,7 +453,7 @@ def train_dgl(config: Union[TrainingConfig, Dict[str, Any]], model: nn.Module = 
             best_val_metric = vmetrics[metric_name]
             best_val_checkpoint = {
                 "model": net.state_dict(),
-                "config": model_config,  # Save model config (ALIGNNConfig)
+                "config": model_config,  # Save model config (DenseALIGNNConfig)
                 "optimizer": optimizer.state_dict(),
                 "lr_scheduler": scheduler.state_dict(),
                 "epoch": engine.state.epoch,
@@ -470,7 +470,7 @@ def train_dgl(config: Union[TrainingConfig, Dict[str, Any]], model: nn.Module = 
             best_test_metric = tstmetrics[metric_name]
             best_test_checkpoint = {
                 "model": net.state_dict(),
-                "config": model_config,  # Save model config (ALIGNNConfig)
+                "config": model_config,  # Save model config (DenseALIGNNConfig)
                 "optimizer": optimizer.state_dict(),
                 "lr_scheduler": scheduler.state_dict(),
                 "epoch": engine.state.epoch,

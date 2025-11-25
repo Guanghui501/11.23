@@ -14,7 +14,7 @@ warnings.filterwarnings('ignore')
 # 导入必要的模块
 from data import get_train_val_loaders
 from config import TrainingConfig
-from models.alignn import ALIGNN, ALIGNNConfig
+from models.dense_alignn import DenseALIGNN, DenseALIGNNConfig
 import visualize_latent_space as vis
 
 
@@ -108,7 +108,7 @@ def main():
         print("❌ Checkpoint中未找到模型配置，无法重建模型")
         return
 
-    model = ALIGNN(model_config)
+    model = DenseALIGNN(model_config)
     model.load_state_dict(checkpoint['model'])
     model.eval()
     print("✅ 模型加载成功")

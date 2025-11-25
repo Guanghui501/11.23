@@ -19,7 +19,7 @@ plt.rcParams['axes.unicode_minus'] = False
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
-from models.alignn import ALIGNN
+from models.dense_alignn import DenseALIGNN
 from data import get_train_val_loaders
 
 
@@ -270,7 +270,7 @@ def main():
             raise ValueError(f"Cannot find config in checkpoint {checkpoint_path}")
 
         # 创建模型
-        model = ALIGNN(config)
+        model = DenseALIGNN(config)
 
         # 尝试获取state_dict
         state_dict = None

@@ -23,7 +23,7 @@ plt.rcParams['axes.unicode_minus'] = False  # 正常显示负号
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
-from models.alignn import ALIGNN
+from models.dense_alignn import DenseALIGNN
 from data import get_train_val_loaders
 
 
@@ -66,7 +66,7 @@ class AttentionComparator:
             raise KeyError(f"Cannot find config in checkpoint. Available keys: {list(checkpoint.keys())}")
 
         # 重建模型
-        model = ALIGNN(config)
+        model = DenseALIGNN(config)
 
         # 尝试多种可能的状态字典键名
         state_dict = None

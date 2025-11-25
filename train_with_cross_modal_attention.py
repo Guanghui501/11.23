@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'crysmmnet-main/src')
 from data import get_train_val_loaders
 from train import train_dgl
 from config import TrainingConfig
-from models.alignn import ALIGNN, ALIGNNConfig
+from models.dense_alignn import DenseALIGNN, DenseALIGNNConfig
 
 from transformers import AutoTokenizer, AutoModel
 from tokenizers.normalizers import BertNormalizer
@@ -116,13 +116,13 @@ def get_parser():
 
     # 模型参数
     parser.add_argument('--alignn_layers', type=int, default=4,
-                        help='ALIGNN层数')
+                        help='DenseALIGNN层数')
     parser.add_argument('--gcn_layers', type=int, default=4,
                         help='GCN层数')
     parser.add_argument('--hidden_features', type=int, default=256,
                         help='隐藏层特征维度')
     parser.add_argument('--graph_dropout', type=float, default=0.0,
-                        help='ALIGNN/GCN层的dropout率（用于正则化）')
+                        help='DenseALIGNN/GCN层的dropout率（用于正则化）')
 
     # 跨模态注意力参数（晚期融合）
     parser.add_argument('--use_cross_modal', type=str2bool, default=True,
@@ -434,9 +434,6 @@ def load_dataset(cif_dir, id_prop_file, dataset, property_name):
 def create_config(args):
     """根据命令行参数创建训练配置"""
 
-    # 导入 ALIGNNConfig
-    from models.alignn import ALIGNNConfig
-
     # 数据集名称映射：用户友好名称 -> TrainingConfig 期望的名称
     dataset_mapping = {
         'jarvis': 'user_data',
@@ -450,8 +447,8 @@ def create_config(args):
     actual_dataset = dataset_mapping.get(args.dataset.lower(), 'user_data')
 
     # 创建模型配置对象
-    model_config = ALIGNNConfig(
-        name="alignn",
+    model_config = DenseALIGNNConfig(
+        name="dense_alignn",
         alignn_layers=args.alignn_layers,
         gcn_layers=args.gcn_layers,
         atom_input_features=92,
@@ -575,7 +572,7 @@ def main():
         print(f"  损失函数: BCE (Binary Cross Entropy)")
 
     print(f"\n模型配置:")
-    print(f"  ALIGNN层数: {args.alignn_layers}")
+    print(f"  DenseALIGNN层数: {args.alignn_layers}")
     print(f"  GCN层数: {args.gcn_layers}")
     print(f"  隐藏层维度: {args.hidden_features}")
     print(f"  Graph层Dropout: {args.graph_dropout}")
@@ -662,10 +659,10 @@ def main():
     config_dict = create_config(args)
     config_dict['output_dir'] = output_dir
 
-    # 提取模型配置（ALIGNNConfig）用于保存到checkpoint
+    # 提取模型配置（DenseALIGNNConfig）用于保存到checkpoint
     model_config = config_dict['model']
 
-    # 保存配置（将 ALIGNNConfig 对象转换为字典以便 JSON 序列化）
+    # 保存配置（将 DenseALIGNNConfig 对象转换为字典以便 JSON 序列化）
     config_file = os.path.join(output_dir, 'config.json')
     config_dict_serializable = config_dict.copy()
 

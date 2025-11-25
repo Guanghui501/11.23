@@ -21,7 +21,7 @@ from scipy.stats import pearsonr, spearmanr
 import warnings
 warnings.filterwarnings('ignore')
 
-from models.alignn import ALIGNN, ALIGNNConfig
+from models.dense_alignn import DenseALIGNN, DenseALIGNNConfig
 from data import get_train_val_loaders
 
 sns.set_style("whitegrid")
@@ -569,7 +569,7 @@ def main():
     print(f"   使用设备: {device}")
 
     # 创建模型
-    model = ALIGNN(config)
+    model = DenseALIGNN(config)
     model.load_state_dict(checkpoint['model'])
     model = model.to(device)
     model.eval()

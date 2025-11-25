@@ -12,7 +12,6 @@ from models.modified_cgcnn import CGCNNConfig
 from models.icgcnn import ICGCNNConfig
 from models.gcn import SimpleGCNConfig
 from models.densegcn import DenseGCNConfig
-from models.alignn import ALIGNNConfig
 from models.dense_alignn import DenseALIGNNConfig
 from models.alignn_cgcnn import ACGCNNConfig
 from models.alignn_layernorm import ALIGNNConfig as ALIGNN_LN_Config
@@ -212,11 +211,10 @@ class TrainingConfig(BaseSettings):
         ICGCNNConfig,
         SimpleGCNConfig,
         DenseGCNConfig,
-        ALIGNNConfig,
         ALIGNN_LN_Config,
         DenseALIGNNConfig,
         ACGCNNConfig,
-    ] = ALIGNNConfig(name="alignn")
+    ] = DenseALIGNNConfig(name="dense_alignn")
     # ] = CGCNNConfig(name="cgcnn")
 
     @root_validator()
