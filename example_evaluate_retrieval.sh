@@ -105,6 +105,22 @@ python evaluate_retrieval.py \
     --output_dir outputs/detailed_retrieval \
     --visualize
 
+# ====================
+# Example 7: Custom dataset (user_data) evaluation
+# ====================
+echo ""
+echo "Example 7: Custom dataset (user_data) evaluation"
+echo "------------------------------------------------"
+
+python evaluate_retrieval.py \
+    --model_path output_100epochs_42_bs128_sw_ju/mbj_bandgap/best_val_model.pt \
+    --split test \
+    --root_dir ../dataset/ \
+    --dataset_name jarvis \
+    --property_name mbj_bandgap \
+    --batch_size 32 \
+    --visualize
+
 echo ""
 echo "========================================"
 echo "All examples completed!"

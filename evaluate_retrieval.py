@@ -9,13 +9,19 @@ using retrieval metrics including:
 - mAP: Mean Average Precision
 
 Usage:
+    # For predefined datasets:
     python evaluate_retrieval.py --model_path best_val_model.pt --config config.json --split test
+
+    # For custom datasets (user_data):
+    python evaluate_retrieval.py --model_path best_val_model.pt --split test \
+        --root_dir ../dataset/ --dataset_name jarvis --property_name mbj_bandgap --visualize
 """
 
 import os
 import sys
 import argparse
 import json
+import csv
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -30,6 +36,141 @@ from typing import Dict, List, Tuple, Optional
 from config import TrainingConfig
 from data import get_train_val_loaders
 from models.alignn import ALIGNN
+
+# Import for dataset loading
+from jarvis.core.atoms import Atoms
+from tokenizers.normalizers import BertNormalizer
+
+
+def load_dataset(cif_dir, id_prop_file, dataset, property_name):
+    """Load local dataset from CIF files and CSV description
+
+    Args:
+        cif_dir: CIF file directory
+        id_prop_file: Description file path (description.csv)
+        dataset: Dataset name
+        property_name: Property name
+
+    Returns:
+        dataset_array: List of sample dictionaries
+    """
+    print(f"\n{'='*60}")
+    print(f"Loading dataset: {dataset} - {property_name}")
+    print(f"CIF directory: {cif_dir}")
+    print(f"Description file: {id_prop_file}")
+    print(f"{'='*60}\n")
+
+    # Read CSV file
+    with open(id_prop_file, 'r') as f:
+        reader = csv.reader(f)
+        headings = next(reader)
+        data = [row for row in reader]
+
+    print(f"Total samples: {len(data)}")
+
+    # Text normalizer
+    norm = BertNormalizer(lowercase=False, strip_accents=True,
+                         clean_text=True, handle_chinese_chars=True)
+
+    # Load vocabulary mappings - smart path finding
+    possible_paths = [
+        'vocab_mappings.txt',
+        './vocab_mappings.txt',
+        os.path.join(os.path.dirname(__file__), 'vocab_mappings.txt'),
+    ]
+
+    mappings = {}
+    vocab_file = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            vocab_file = path
+            break
+
+    if vocab_file:
+        with open(vocab_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split(',', 1)
+                if len(parts) == 2:
+                    mappings[parts[0].strip()] = parts[1].strip()
+        print(f"Loaded {len(mappings)} vocabulary mappings from {vocab_file}")
+    else:
+        print("⚠️  Warning: vocab_mappings.txt not found, using default normalization")
+
+    def normalize(text):
+        """Normalize text using BERT normalizer and vocab mappings"""
+        if text is None:
+            return None
+        normalized = norm.normalize_str(text)
+        # Apply vocabulary mappings
+        out = []
+        for s in normalized.split('\n'):
+            norm_s = ''
+            for c in s:
+                norm_s += mappings.get(c, ' ')
+            out.append(norm_s)
+        return '\n'.join(out)
+
+    # Build dataset
+    dataset_array = []
+    skipped = 0
+
+    for j in tqdm(range(len(data)), desc="Loading data"):
+        try:
+            # Parse CSV row (based on dataset type)
+            if dataset.lower() == 'jarvis':
+                # JARVIS format: id, composition, target, description, file_name
+                id = data[j][0]
+                composition = data[j][1]
+                target = data[j][2]
+                crys_desc_full = data[j][3] if len(data[j]) > 3 else None
+            elif dataset.lower() == 'mp':
+                # Materials Project format
+                id = data[j][0]
+                composition = data[j][1]
+                target = data[j][2]
+                crys_desc_full = data[j][3] if len(data[j]) > 3 else None
+            else:
+                # Generic format: id, target, description
+                id = data[j][0]
+                target = data[j][1]
+                crys_desc_full = data[j][2] if len(data[j]) > 2 else None
+
+            # Normalize description text
+            if crys_desc_full:
+                crys_desc_full = normalize(crys_desc_full)
+
+            # Load CIF file
+            cif_file = os.path.join(cif_dir, f'{id}.cif')
+            if not os.path.exists(cif_file):
+                raise FileNotFoundError(f"CIF file not found: {cif_file}")
+
+            atoms = Atoms.from_cif(cif_file)
+
+            # If CSV doesn't provide description, generate from CIF
+            if crys_desc_full is None:
+                crys_desc_full = normalize(atoms.composition.reduced_formula)
+
+            info = {
+                "atoms": atoms.to_dict(),
+                "jid": id,
+                "text": crys_desc_full,
+                "target": float(target)
+            }
+
+            dataset_array.append(info)
+
+        except Exception as e:
+            skipped += 1
+            if skipped <= 5:  # Only show first 5 errors
+                print(f"Skipping sample {id if 'id' in locals() else j}: {e}")
+
+    print(f"\nSuccessfully loaded: {len(dataset_array)} samples")
+    print(f"Skipped: {skipped} samples\n")
+
+    return dataset_array
 
 
 class RetrievalEvaluator:
@@ -424,6 +565,14 @@ def main():
     parser.add_argument('--visualize', action='store_true',
                        help='Generate visualization plots')
 
+    # Dataset loading arguments for custom datasets
+    parser.add_argument('--root_dir', type=str, default='../dataset/',
+                       help='Root directory for custom datasets (default: ../dataset/)')
+    parser.add_argument('--dataset_name', type=str, default='jarvis',
+                       help='Dataset name (jarvis/mp, default: jarvis)')
+    parser.add_argument('--property_name', type=str, default='mbj_bandgap',
+                       help='Property name (e.g., mbj_bandgap, default: mbj_bandgap)')
+
     args = parser.parse_args()
 
     # Setup device
@@ -440,11 +589,48 @@ def main():
     # Load model and config
     model, config = load_model_and_config(args.model_path, args.config_path, device)
 
+    # Load dataset if using custom data (dataset="user_data")
+    dataset_array = []
+    if config.dataset == "user_data":
+        print(f"\n📦 Detected custom dataset '{config.dataset}', loading from files...")
+
+        # Construct paths
+        if args.dataset_name.lower() == 'jarvis':
+            cif_dir = os.path.join(args.root_dir, f'jarvis/{args.property_name}/cif/')
+            id_prop_file = os.path.join(args.root_dir, f'jarvis/{args.property_name}/description.csv')
+        elif args.dataset_name.lower() == 'mp':
+            cif_dir = os.path.join(args.root_dir, 'mp_2018_new/')
+            id_prop_file = os.path.join(args.root_dir, 'mp_2018_new/mat_text.csv')
+        else:
+            raise ValueError(f"Unsupported dataset: {args.dataset_name}")
+
+        # Check if paths exist
+        if not os.path.exists(cif_dir):
+            raise FileNotFoundError(
+                f"CIF directory not found: {cif_dir}\n"
+                f"Please check --root_dir and --dataset_name arguments.\n"
+                f"Use --root_dir to specify the dataset root directory."
+            )
+        if not os.path.exists(id_prop_file):
+            raise FileNotFoundError(
+                f"Description file not found: {id_prop_file}\n"
+                f"Please check --root_dir and --property_name arguments."
+            )
+
+        # Load dataset
+        dataset_array = load_dataset(cif_dir, id_prop_file, args.dataset_name, args.property_name)
+
+        if len(dataset_array) == 0:
+            raise ValueError("Dataset is empty! Please check data files.")
+
+        print(f"✓ Successfully loaded {len(dataset_array)} samples\n")
+
     # Prepare data loaders
     print(f"\n🔄 Loading {args.split} data...")
     config.batch_size = args.batch_size
     train_loader, val_loader, test_loader, _ = get_train_val_loaders(
         dataset=config.dataset,
+        dataset_array=dataset_array,  # Pass loaded dataset
         target=config.target,
         atom_features=config.atom_features,
         neighbor_strategy=config.neighbor_strategy,
