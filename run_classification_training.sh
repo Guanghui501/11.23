@@ -56,13 +56,14 @@ nohup python train_with_cross_modal_attention.py \
     --fine_grained_use_projection True \
     \
     --use_cross_modal True \
-    --cross_modal_num_heads 8 \
-    --cross_modal_dropout 0.2 \
+    --cross_modal_hidden_dim 256 \
+    --cross_modal_num_heads 4 \
+    --cross_modal_dropout 0.15 \
     \
     --classification 1 \
     --classification_threshold 0.5 \
     \
-    --early_stopping_patience 50 \
+    --early_stopping_patience 30 \
     --output_dir ./output_synthesizability_classification \
     --num_workers 24 \
     --random_seed 42 \
