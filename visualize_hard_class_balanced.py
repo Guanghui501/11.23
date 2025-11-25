@@ -5,19 +5,22 @@
 """
 
 import os
-import sys
 import argparse
 import numpy as np
 import random
 
-# 导入原始脚本的所有函数
-sys.path.insert(0, os.path.dirname(__file__))
-from visualize_hard_class_subset import (
+# 导入共享工具函数
+from hard_class_utils import (
     load_model, extract_crystal_systems_from_dataset,
     filter_by_crystal_systems, extract_features,
     compute_clustering_metrics, compute_class_separation,
+    CRYSTAL_SYSTEMS, CRYSTAL_SYSTEM_COLORS
+)
+
+# 导入可视化函数
+from visualize_hard_class_subset import (
     apply_reduction, plot_hard_class_comparison,
-    plot_separation_metrics, CRYSTAL_SYSTEMS
+    plot_separation_metrics
 )
 
 from pathlib import Path
