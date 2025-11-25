@@ -48,6 +48,7 @@ from models.alignn import ALIGNN
 from jarvis.db.jsonutils import dumpjson
 import json
 import os
+from monitor_fusion_weights import print_fusion_weights, log_fusion_weights_to_file
 
 # from sklearn.decomposition import PCA, KernelPCA
 # from sklearn.preprocessing import StandardScaler
@@ -495,6 +496,34 @@ def train_dgl(config: Union[TrainingConfig, Dict[str, Any]], model: nn.Module = 
         if early_stopping_patience:
             print(f"Epochs without improvement: {epochs_without_improvement}/{early_stopping_patience}")
         print("\n")
+
+    # Add DynamicFusionModule weight monitoring
+    if hasattr(net, 'middle_fusion_modules') and len(net.middle_fusion_modules) > 0:
+        @trainer.on(Events.EPOCH_COMPLETED)
+        def log_fusion_weights(engine):
+            """Log fusion module weights for monitoring modal competition."""
+            epoch = engine.state.epoch
+
+            # Log every 5 epochs to reduce overhead
+            if epoch % 5 == 0:
+                print("\n" + "="*80)
+                print(f"DynamicFusionModule Weight Statistics (Epoch {epoch})")
+                print("="*80)
+
+                # Print detailed statistics
+                try:
+                    stats = print_fusion_weights(net, verbose=True)
+
+                    # Log to CSV file for tracking over time
+                    log_file = os.path.join(config.output_dir, "fusion_weights.csv")
+                    log_fusion_weights_to_file(net, log_file, epoch)
+
+                except Exception as e:
+                    print(f"⚠️ Warning: Failed to log fusion weights: {e}")
+
+                print("="*80 + "\n")
+
+        print("✅ DynamicFusionModule weight monitoring enabled (logs every 5 epochs)")
 
     # train the model!
     trainer.run(train_loader, max_epochs=config.epochs)
