@@ -86,8 +86,21 @@ class EnhancedInterpretabilityAnalyzer:
 
         # 添加 BERT 特殊 token 和标点符号
         special_tokens = {
+            # BERT 特殊 tokens
             '[CLS]', '[SEP]', '[PAD]', '[UNK]', '[MASK]',
-            '.', ',', '(', ')', '-', '–', ':', ';', '"', "'", '/', '\\',
+            # 英文标点符号（所有常见标点）
+            '.', ',', '!', '?', ';', ':',
+            '(', ')', '[', ']', '{', '}', '<', '>',
+            '"', "'", '`',
+            '-', '–', '—', '_',
+            '/', '\\', '|',
+            '+', '=', '*', '&', '%', '$', '#', '@', '^', '~',
+            # 中文标点符号
+            '，', '。', '！', '？', '；', '：',
+            '（', '）', '【', '】', '《', '》', '〈', '〉',
+            '"', '"', ''', ''', '、', '·',
+            '……', '—', '～',
+            # WordPiece 词缀
             '##s', '##ed', '##ing', '##ly', '##er', '##est', '##tion', '##ment',
         }
         stopwords.update(special_tokens)
@@ -394,17 +407,39 @@ class EnhancedInterpretabilityAnalyzer:
         return merged_tokens, merged_weights, token_mapping
 
     def is_stopword(self, word):
-        """检查是否为停用词"""
+        """检查是否为停用词（包括所有标点符号）"""
         word_lower = word.lower().strip()
+
+        # 空字符串
+        if not word_lower:
+            return True
+
         # 检查是否在停用词列表中
         if word_lower in self.STOPWORDS or word in self.STOPWORDS:
             return True
-        # 检查是否为WordPiece碎片（以##开头且长度小于4）
+
+        # 检查是否为纯标点符号字符串（例如："...", "---", "!!!"）
+        # 定义所有标点符号字符（包括中英文）
+        punctuation_chars = set('.,:;!?()[]{}"\'-—–_/\\|+*&%$#@^~`<>，。：；！？（）【】《》""''、·……～')
+        if all(c in punctuation_chars for c in word):
+            return True
+
+        # 检查是否为WordPiece碎片（以##开头且长度小于5）
         if word.startswith('##') and len(word) < 5:
             return True
-        # 检查是否为单个字符（除了元素符号）
-        if len(word_lower) == 1 and not word_lower.isupper():
+
+        # 检查是否为单个字符（除了大写字母如元素符号O/N/C，或希腊字母α/β/γ）
+        if len(word_lower) == 1:
+            # 保留ASCII大写字母（元素符号）
+            if word.isupper():
+                return False
+            # 保留希腊字母 (U+03B1-U+03C9 小写, U+0391-U+03A9 大写)
+            char_code = ord(word_lower)
+            if 0x03B1 <= char_code <= 0x03C9 or 0x0391 <= char_code <= 0x03A9:
+                return False
+            # 其他单字符都过滤
             return True
+
         return False
 
     def filter_stopwords_from_analysis(self, word_importance_pairs):
