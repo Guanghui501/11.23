@@ -118,17 +118,24 @@ class ContrastiveLoss(nn.Module):
         return loss
 
 
-class MiddleFusionModule(nn.Module):
-    """Middle fusion module for injecting text information into graph encoding.
+class DynamicFusionModule(nn.Module):
+    """
+    Advanced dynamic fusion module with modal competition mechanism (Based on Paper 69).
 
-    This module performs cross-modal fusion during the intermediate layers of
-    graph encoding, allowing text features to modulate node representations.
+    Implements dynamic routing to decide the relative importance of graph vs text modalities.
+    Uses double residual connection to enforce physics prior: graph features always maintain
+    a baseline weight (≥1.0) since material properties are fundamentally determined by
+    atomic structure, while text only provides supplementary descriptive information.
 
-    Uses a simple gated fusion mechanism that works with DGL batched graphs.
+    Key improvements over simple gating:
+    - Dynamic router with Softmax competition (w_graph + w_text = 1)
+    - Better activation functions (SiLU, Tanh)
+    - Weight monitoring for interpretability
+    - Physics-informed bias: graph features cannot be completely suppressed
     """
 
     def __init__(self, node_dim=64, text_dim=64, hidden_dim=128, num_heads=2, dropout=0.1):
-        """Initialize middle fusion module.
+        """Initialize dynamic fusion module.
 
         Args:
             node_dim: Dimension of graph node features
@@ -142,25 +149,32 @@ class MiddleFusionModule(nn.Module):
         self.text_dim = text_dim
         self.hidden_dim = hidden_dim
 
-        # Text transformation
+        # Text feature alignment (map to same dimension as nodes)
         self.text_transform = nn.Sequential(
             nn.Linear(text_dim, hidden_dim),
-            nn.ReLU(),
+            nn.SiLU(),  # SiLU/Swish generally better than ReLU
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, node_dim)
         )
 
-        # Gate mechanism to control text influence
-        self.gate = nn.Sequential(
-            nn.Linear(node_dim + node_dim, node_dim),
-            nn.Sigmoid()
+        # Dynamic router network
+        # Input: [graph_features, text_features] -> Output: 2 weights (w_graph, w_text)
+        self.router = nn.Sequential(
+            nn.Linear(node_dim * 2, hidden_dim),
+            nn.Tanh(),  # Tanh better handles positive/negative correlations
+            nn.Linear(hidden_dim, 2)  # Output two scores
         )
 
         self.layer_norm = nn.LayerNorm(node_dim)
         self.dropout = nn.Dropout(dropout)
 
+        # Weight monitoring (for interpretability and debugging)
+        self.register_buffer('avg_w_graph', torch.tensor(0.0))
+        self.register_buffer('avg_w_text', torch.tensor(0.0))
+        self.register_buffer('update_count', torch.tensor(0))
+
     def forward(self, node_feat, text_feat, batch_num_nodes=None):
-        """Apply middle fusion using gated mechanism.
+        """Apply dynamic fusion with modal competition.
 
         Args:
             node_feat: Node features [total_nodes, node_dim] (for batched graphs)
@@ -171,23 +185,14 @@ class MiddleFusionModule(nn.Module):
         Returns:
             Enhanced node features with same shape as input
         """
-        # 调试输出
-        print(f"\n  🔍 MiddleFusionModule.forward 调试:")
-        print(f"     node_feat.shape: {node_feat.shape}")
-        print(f"     text_feat.shape: {text_feat.shape}")
-        print(f"     batch_num_nodes: {batch_num_nodes}")
-
         batch_size = text_feat.size(0)
         num_nodes = node_feat.size(0)
 
-        # Transform text features
+        # --- 1. Text transformation and broadcasting ---
         text_transformed = self.text_transform(text_feat)  # [batch_size, node_dim]
-        print(f"     text_transformed.shape: {text_transformed.shape}")
 
-        # Case 1: Batched graphs (total_nodes != batch_size)
+        # Broadcasting logic (same as original)
         if num_nodes != batch_size:
-            # Broadcast text features to all nodes
-            # Simple approach: repeat text features proportionally to nodes per graph
             if batch_num_nodes is not None:
                 # Use provided batch information
                 text_expanded = []
@@ -198,24 +203,84 @@ class MiddleFusionModule(nn.Module):
                 # Fallback: use average pooling of text and broadcast
                 text_pooled = text_transformed.mean(dim=0, keepdim=True)  # [1, node_dim]
                 text_broadcasted = text_pooled.repeat(num_nodes, 1)  # [total_nodes, node_dim]
-
-        # Case 2: Already pooled features (one per graph)
         else:
             text_broadcasted = text_transformed  # [batch_size, node_dim]
 
-        print(f"     text_broadcasted.shape: {text_broadcasted.shape}")
+        # --- 2. Dynamic routing (core upgrade) ---
+        # Concatenate features for decision making
+        router_input = torch.cat([node_feat, text_broadcasted], dim=-1)  # [N_nodes, dim*2]
 
-        # Gated fusion
-        gate_input = torch.cat([node_feat, text_broadcasted], dim=-1)  # [*, node_dim*2]
-        print(f"     gate_input.shape: {gate_input.shape}")
-        gate_values = self.gate(gate_input)  # [*, node_dim]
+        # Compute raw scores
+        scores = self.router(router_input)  # [N_nodes, 2]
 
-        # Apply gating and residual connection
-        enhanced = node_feat + gate_values * text_broadcasted
-        enhanced = self.layer_norm(enhanced)
-        enhanced = self.dropout(enhanced)
+        # Use Softmax to get normalized weights (w_g + w_t = 1)
+        # Softmax creates competition: if w_text increases, w_graph automatically decreases
+        weights = F.softmax(scores, dim=-1)
 
-        return enhanced
+        w_graph = weights[:, 0].unsqueeze(-1)  # [N_nodes, 1]
+        w_text = weights[:, 1].unsqueeze(-1)   # [N_nodes, 1]
+
+        # Update weight monitoring (exponential moving average)
+        if self.training:
+            with torch.no_grad():
+                batch_avg_w_graph = w_graph.mean().item()
+                batch_avg_w_text = w_text.mean().item()
+
+                # EMA update
+                momentum = 0.99
+                self.avg_w_graph = momentum * self.avg_w_graph + (1 - momentum) * batch_avg_w_graph
+                self.avg_w_text = momentum * self.avg_w_text + (1 - momentum) * batch_avg_w_text
+                self.update_count += 1
+
+        # --- 3. Weighted fusion with double residual (physics prior) ---
+        # Fusion: compete between modalities
+        fused = w_graph * node_feat + w_text * text_broadcasted
+
+        # Double residual: ensure graph always has baseline contribution (≥1.0)
+        # Final effective weight: graph gets (1 + w_graph), text gets w_text
+        # This enforces the physics prior that structure is fundamental
+        out = node_feat + self.dropout(fused)
+        out = self.layer_norm(out)
+
+        return out
+
+    def get_weight_stats(self):
+        """Get current weight statistics for monitoring.
+
+        Returns:
+            dict: Statistics including average weights and update count
+        """
+        return {
+            'avg_w_graph': self.avg_w_graph.item(),
+            'avg_w_text': self.avg_w_text.item(),
+            'update_count': self.update_count.item()
+        }
+
+
+# Legacy implementation (kept for reference/comparison)
+# class MiddleFusionModule(nn.Module):
+#     """Simple gated fusion (original implementation)."""
+#     def __init__(self, node_dim=64, text_dim=64, hidden_dim=128, num_heads=2, dropout=0.1):
+#         super().__init__()
+#         self.text_transform = nn.Sequential(
+#             nn.Linear(text_dim, hidden_dim),
+#             nn.ReLU(),
+#             nn.Dropout(dropout),
+#             nn.Linear(hidden_dim, node_dim)
+#         )
+#         self.gate = nn.Sequential(
+#             nn.Linear(node_dim + node_dim, node_dim),
+#             nn.Sigmoid()
+#         )
+#         self.layer_norm = nn.LayerNorm(node_dim)
+#         self.dropout = nn.Dropout(dropout)
+#
+#     def forward(self, node_feat, text_feat, batch_num_nodes=None):
+#         # [Implementation omitted - see git history]
+#         pass
+
+# Alias for backward compatibility
+MiddleFusionModule = DynamicFusionModule
 
 
 class CrossModalAttention(nn.Module):
