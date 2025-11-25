@@ -28,7 +28,7 @@ from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
 
 try:
-    import umap
+    from umap import UMAP
     UMAP_AVAILABLE = True
 except ImportError:
     UMAP_AVAILABLE = False
@@ -310,7 +310,7 @@ def apply_reduction(features, method='tsne', n_components=2):
             max_iter=1000
         )
     elif method == 'umap' and UMAP_AVAILABLE:
-        reducer = umap.UMAP(
+        reducer = UMAP(
             n_components=n_components,
             n_neighbors=min(15, len(features) - 1),
             min_dist=0.1,

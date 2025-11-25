@@ -22,7 +22,7 @@ warnings.filterwarnings('ignore')
 # 降维算法
 from sklearn.manifold import TSNE
 try:
-    import umap
+    from umap import UMAP
     UMAP_AVAILABLE = True
 except ImportError:
     UMAP_AVAILABLE = False
@@ -195,7 +195,7 @@ def apply_dimensionality_reduction(features, method='tsne', n_components=2, **kw
             'verbose': False
         }
         default_params.update(kwargs)
-        reducer = umap.UMAP(**default_params)
+        reducer = UMAP(**default_params)
     else:
         raise ValueError(f"不支持的降维方法: {method}")
 
