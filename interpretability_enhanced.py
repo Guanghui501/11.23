@@ -170,6 +170,8 @@ class EnhancedInterpretabilityAnalyzer:
         in_space_group = False  # Track if we're in a space group symbol
         in_coordinate = False  # Track if we're in a N-coordinate pattern
         in_parentheses = False  # Track if we're inside parentheses like Ba(1)
+        after_closing_paren = False  # Track if we just closed a parenthesis (for chemical formulas like Ca(1)O6)
+        in_hyphenated_word = False  # Track if we're in a hyphenated compound word like "see-saw-like"
 
         for i, token in enumerate(tokens):
             if token.startswith("##"):
@@ -190,14 +192,29 @@ class EnhancedInterpretabilityAnalyzer:
                     current_indices.append(i)
                     in_coordinate = True
                 else:
-                    # Don't merge "-" with regular words like "bonded"
-                    if current_token:
-                        merged_tokens.append(current_token)
-                        token_mapping.append(current_indices)
-                        in_space_group = False
-                        in_coordinate = False
-                    current_token = token
-                    current_indices = [i]
+                    # Check if this is part of a hyphenated compound word (like "see-saw-like")
+                    # Merge hyphen if current token is alphabetic (or already hyphenated) and has reasonable length
+                    # This keeps compound words together while avoiding merging with formulas
+                    token_without_hyphens = current_token.replace('##', '').replace('-', '')
+                    is_compound_word = (token_without_hyphens.isalpha() and
+                                       len(current_token) >= 2 and
+                                       not (current_token in atom_symbols or current_token.capitalize() in atom_symbols))
+                    if is_compound_word:
+                        # This looks like a hyphenated compound word
+                        current_token += token
+                        current_indices.append(i)
+                        in_hyphenated_word = True  # Continue merging the next word
+                    else:
+                        # Don't merge "-" with atom symbols or other patterns
+                        if current_token:
+                            merged_tokens.append(current_token)
+                            token_mapping.append(current_indices)
+                            in_space_group = False
+                            in_coordinate = False
+                            after_closing_paren = False
+                            in_hyphenated_word = False
+                        current_token = token
+                        current_indices = [i]
             elif token == '/' and current_token:
                 # Merge "/" for space groups (I4/mmm, P63/mmc)
                 # Use upper() for case-insensitive detection
@@ -209,6 +226,8 @@ class EnhancedInterpretabilityAnalyzer:
                     if current_token:
                         merged_tokens.append(current_token)
                         token_mapping.append(current_indices)
+                        after_closing_paren = False
+                        in_hyphenated_word = False
                     current_token = token
                     current_indices = [i]
             elif in_coordinate and token.isalpha():
@@ -229,6 +248,8 @@ class EnhancedInterpretabilityAnalyzer:
                         merged_tokens.append(current_token)
                         token_mapping.append(current_indices)
                     in_space_group = False
+                    after_closing_paren = False
+                    in_hyphenated_word = False
                     current_token = token
                     current_indices = [i]
             elif token == '(' and current_token:
@@ -241,10 +262,21 @@ class EnhancedInterpretabilityAnalyzer:
                 current_token += token
                 current_indices.append(i)
                 in_parentheses = False
+                # Set flag to continue merging if followed by element symbols/digits (like Ca(1)O6)
+                after_closing_paren = True
             elif in_parentheses and (token.isdigit() or token.isalpha()):
                 # Merge content inside parentheses (digits or letters)
                 current_token += token
                 current_indices.append(i)
+            elif after_closing_paren and (token in atom_symbols or token.capitalize() in atom_symbols or token.isdigit()):
+                # Continue merging after closing parenthesis for chemical formulas (Ca(1)O6)
+                # Merge element symbols or digits immediately following ")"
+                current_token += token
+                current_indices.append(i)
+                # Keep the flag set if it's an element symbol (to continue with digits like O6)
+                # Reset the flag if it's a digit (we're done with this formula unit)
+                if token.isdigit():
+                    after_closing_paren = False
             elif token.isdigit() and current_token and not current_token[-1].isdigit():
                 # Only merge numbers with atom symbols or short space group starters
                 # NOT with regular words like "bonded"
@@ -261,6 +293,8 @@ class EnhancedInterpretabilityAnalyzer:
                         merged_tokens.append(current_token)
                         token_mapping.append(current_indices)
                         in_space_group = False
+                        after_closing_paren = False
+                        in_hyphenated_word = False
                     current_token = token
                     current_indices = [i]
             elif token == '.' and current_token:
@@ -286,19 +320,44 @@ class EnhancedInterpretabilityAnalyzer:
                         in_space_group = False
                         in_coordinate = False
                         in_parentheses = False
+                        after_closing_paren = False
+                        in_hyphenated_word = False
                     current_token = token
                     current_indices = [i]
+            elif in_hyphenated_word and token.replace('##', '').isalpha():
+                # Continue merging hyphenated compound word (like "saw" in "see-saw-like")
+                current_token += token
+                current_indices.append(i)
+                # Reset flag after merging the word part
+                # The next hyphen will be checked again to see if it should continue the compound
+                in_hyphenated_word = False
             else:
-                # Save previous token if exists
-                if current_token:
+                # Save previous token if exists (unless we're continuing a hyphenated word)
+                if current_token and not in_hyphenated_word:
                     merged_tokens.append(current_token)
                     token_mapping.append(current_indices)
                     in_space_group = False
                     in_coordinate = False
                     in_parentheses = False
-                # Start new token
-                current_token = token
-                current_indices = [i]
+                    after_closing_paren = False
+                    # Start new token
+                    current_token = token
+                    current_indices = [i]
+                elif current_token and in_hyphenated_word:
+                    # Reset hyphenated word flag if next token is not alphabetic or hyphen
+                    # This handles the end of the hyphenated word
+                    merged_tokens.append(current_token)
+                    token_mapping.append(current_indices)
+                    in_space_group = False
+                    in_coordinate = False
+                    in_parentheses = False
+                    after_closing_paren = False
+                    in_hyphenated_word = False
+                    current_token = token
+                    current_indices = [i]
+                else:
+                    current_token = token
+                    current_indices = [i]
                 # Check if starting a space group (case-insensitive)
                 if token.upper() in space_group_starters:
                     in_space_group = True
