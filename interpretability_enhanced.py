@@ -216,11 +216,21 @@ class EnhancedInterpretabilityAnalyzer:
                 current_token += token
                 current_indices.append(i)
                 in_coordinate = False  # End after the word
-            elif in_space_group and (token.isdigit() or (token.lower() in space_group_chars) or
-                                     (token.isalpha() and len(token) <= 2)):
-                # Continue space group: merge numbers, m/n/c/a/b/d letters
-                current_token += token
-                current_indices.append(i)
+            elif in_space_group:
+                # Check if this token should be part of the space group
+                # Continue only for digits and specific space group characters
+                if token.isdigit() or (token.lower() in space_group_chars):
+                    # Continue space group: merge numbers, m/n/c/a/b/d letters
+                    current_token += token
+                    current_indices.append(i)
+                else:
+                    # End space group - don't merge this token
+                    if current_token:
+                        merged_tokens.append(current_token)
+                        token_mapping.append(current_indices)
+                    in_space_group = False
+                    current_token = token
+                    current_indices = [i]
             elif token == '(' and current_token:
                 # Merge opening parentheses (e.g., for atom labels like Li(1))
                 current_token += token
@@ -254,9 +264,30 @@ class EnhancedInterpretabilityAnalyzer:
                     current_token = token
                     current_indices = [i]
             elif token == '.' and current_token:
-                # Merge decimal points
-                current_token += token
-                current_indices.append(i)
+                # Only merge decimal points if followed by digits (e.g., 3.14)
+                # Don't merge period after space groups or between different entities
+                # Check if the current token looks like it should accept a decimal
+                # (e.g., a number, not a space group or atom label)
+                is_numeric = current_token.replace('-', '').replace('/', '').isdigit()
+                # Don't merge if current_token ends with ')' (like "Ca(1).")
+                ends_with_paren = current_token.endswith(')')
+                # Don't merge if current token is a space group (short and has special chars)
+                is_space_group = len(current_token) <= 6 and any(c in current_token for c in ['-', '/'])
+
+                if is_numeric and not is_space_group and not ends_with_paren:
+                    # This looks like a decimal number
+                    current_token += token
+                    current_indices.append(i)
+                else:
+                    # Save previous token and start new with period
+                    if current_token:
+                        merged_tokens.append(current_token)
+                        token_mapping.append(current_indices)
+                        in_space_group = False
+                        in_coordinate = False
+                        in_parentheses = False
+                    current_token = token
+                    current_indices = [i]
             else:
                 # Save previous token if exists
                 if current_token:
