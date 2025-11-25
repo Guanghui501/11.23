@@ -1182,7 +1182,21 @@ class EnhancedInterpretabilityAnalyzer:
 
                 # Get top-k indices
                 top_atom_indices = atom_importance.argsort()[-top_k_atoms:][::-1]
-                top_word_indices = word_importance.argsort()[-top_k_words:][::-1]
+
+                # Filter word indices to exclude stopwords/punctuation
+                valid_word_indices = []
+                for idx in range(len(word_importance)):
+                    if idx < len(text_tokens) and not self.is_stopword(text_tokens[idx]):
+                        valid_word_indices.append(idx)
+
+                # Select top-k from valid (non-stopword) words
+                if valid_word_indices:
+                    valid_word_scores = [(idx, word_importance[idx]) for idx in valid_word_indices]
+                    valid_word_scores.sort(key=lambda x: x[1], reverse=True)
+                    top_word_indices = [idx for idx, _ in valid_word_scores[:top_k_words]]
+                else:
+                    # Fallback: if all words are stopwords, use original logic
+                    top_word_indices = word_importance.argsort()[-top_k_words:][::-1].tolist()
 
                 # Sort indices for better visualization
                 top_atom_indices = np.sort(top_atom_indices)
@@ -1219,8 +1233,22 @@ class EnhancedInterpretabilityAnalyzer:
                 atom_importance_t2a = text_to_atom_avg.mean(axis=0)  # [num_atoms]
 
                 # Get top-k indices
-                top_word_indices_t2a = word_importance_t2a.argsort()[-top_k_words:][::-1]
                 top_atom_indices_t2a = atom_importance_t2a.argsort()[-top_k_atoms:][::-1]
+
+                # Filter word indices to exclude stopwords/punctuation
+                valid_word_indices_t2a = []
+                for idx in range(len(word_importance_t2a)):
+                    if idx < len(text_tokens) and not self.is_stopword(text_tokens[idx]):
+                        valid_word_indices_t2a.append(idx)
+
+                # Select top-k from valid (non-stopword) words
+                if valid_word_indices_t2a:
+                    valid_word_scores_t2a = [(idx, word_importance_t2a[idx]) for idx in valid_word_indices_t2a]
+                    valid_word_scores_t2a.sort(key=lambda x: x[1], reverse=True)
+                    top_word_indices_t2a = [idx for idx, _ in valid_word_scores_t2a[:top_k_words]]
+                else:
+                    # Fallback: if all words are stopwords, use original logic
+                    top_word_indices_t2a = word_importance_t2a.argsort()[-top_k_words:][::-1].tolist()
 
                 # Sort indices
                 top_word_indices_t2a = np.sort(top_word_indices_t2a)
