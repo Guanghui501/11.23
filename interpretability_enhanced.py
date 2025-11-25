@@ -1819,23 +1819,56 @@ Effective: {stats['global_stats']['effective_connections']:.1f}%
         # Simple sentence segmentation (by period, or fixed length)
         sentences = text.split('. ')
 
-        # Map tokens to sentences
+        # Simple and robust approach: match tokens to sentences by comparing
+        # the detokenized prefix against sentence boundaries
         token_to_sentence = []
-        current_pos = 0
-        current_sentence = 0
 
+        # Detokenize tokens to get approximate text position
+        detokenized_parts = []
         for token in text_tokens:
-            # Simple heuristic: check if we've moved to next sentence
-            token_clean = token.replace('#', '').lower()
-            if current_sentence < len(sentences) - 1:
-                if sentences[current_sentence].lower().find(token_clean) == -1:
-                    current_sentence += 1
-            token_to_sentence.append(current_sentence)
+            if token in ['[CLS]', '[SEP]', '[PAD]', '[UNK]']:
+                detokenized_parts.append('')
+            elif token.startswith('##'):
+                detokenized_parts.append(token[2:])
+            else:
+                detokenized_parts.append(' ' + token if detokenized_parts else token)
 
-        # Aggregate importance by sentence
+        # Build cumulative detokenized text and map to sentences
+        cumulative_text = ""
+        current_sentence_idx = 0
+        sentence_end_positions = []
+
+        # Calculate character positions where each sentence ends
+        pos = 0
+        for i, sent in enumerate(sentences):
+            pos += len(sent)
+            if i < len(sentences) - 1:
+                pos += 2  # ". " separator
+            sentence_end_positions.append(pos)
+
+        for i, token_part in enumerate(detokenized_parts):
+            cumulative_text += token_part
+
+            # Skip special tokens
+            if text_tokens[i] in ['[CLS]', '[SEP]', '[PAD]', '[UNK]']:
+                token_to_sentence.append(-1)
+                continue
+
+            # Find which sentence we're in based on cumulative text length
+            # Remove spaces for more accurate matching
+            text_len = len(cumulative_text.replace(' ', ''))
+
+            # Update sentence index based on position
+            while (current_sentence_idx < len(sentence_end_positions) - 1 and
+                   text_len > sentence_end_positions[current_sentence_idx]):
+                current_sentence_idx += 1
+
+            token_to_sentence.append(current_sentence_idx)
+
+        # Aggregate importance by sentence (skip special tokens marked as -1)
         sentence_importance = {}
         for i, sent_idx in enumerate(token_to_sentence):
-            if i < len(word_importance):
+            if sent_idx >= 0 and i < len(word_importance):
                 if sent_idx not in sentence_importance:
                     sentence_importance[sent_idx] = []
                 sentence_importance[sent_idx].append(word_importance[i])
