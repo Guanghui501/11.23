@@ -175,6 +175,10 @@ def get_parser():
     parser.add_argument('--contrastive_temperature', type=float, default=0.1,
                         help='对比学习的温度参数')
 
+    # 预测设置参数
+    parser.add_argument('--use_only_graph_for_prediction', type=str2bool, default=False,
+                        help='是否只使用图特征进行预测（文本仅用于增强图特征）')
+
     # 其他参数
     parser.add_argument('--output_dir', type=str, default='./output/',
                         help='输出目录')
@@ -486,6 +490,8 @@ def create_config(args):
         mask_stopwords=bool(args.mask_stopwords),
         remove_stopwords=bool(args.remove_stopwords),
         stopwords_dir=args.stopwords_dir,
+        # 预测设置
+        use_only_graph_for_prediction=args.use_only_graph_for_prediction,
         link="identity",
         zero_inflated=False,
         classification=False
