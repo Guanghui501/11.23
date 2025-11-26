@@ -191,8 +191,21 @@ def train_with_best_params(
             steps_per_epoch=len(train_loader),
             pct_start=0.3,
         )
+        scheduler_type = "per_iteration"
+    elif config.scheduler == "plateau":
+        # ReduceLROnPlateau: reduce LR when val_mae stops improving
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode='min',  # minimize val_mae
+            factor=0.5,  # reduce LR by half
+            patience=10,  # wait 10 epochs before reducing
+            verbose=True,
+            min_lr=1e-6
+        )
+        scheduler_type = "per_epoch_with_metric"
     else:
         scheduler = None
+        scheduler_type = None
 
     # 7. 创建训练器和评估器
     trainer = create_supervised_trainer(
@@ -286,7 +299,14 @@ def train_with_best_params(
 
         # 更新学习率
         if scheduler is not None:
-            scheduler.step()
+            if scheduler_type == "per_epoch_with_metric":
+                # For ReduceLROnPlateau, pass val_mae
+                scheduler.step(metrics['mae'])
+            elif scheduler_type == "per_iteration":
+                # For OneCycleLR, it's already called per iteration
+                pass
+            else:
+                scheduler.step()
 
     # 9. 开始训练
     print("\n" + "=" * 80)

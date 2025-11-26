@@ -218,11 +218,28 @@ def train_dgl(config: Union[TrainingConfig, Dict[str, Any]], model: nn.Module = 
     if config.scheduler == "none":
         # always return multiplier of 1 (i.e. do nothing)
         scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 1.0)
+        scheduler_type = "per_iteration"  # Called every iteration
     elif config.scheduler == "onecycle":
         steps_per_epoch = len(train_loader)
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer,max_lr=config.learning_rate,epochs=config.epochs,steps_per_epoch=steps_per_epoch,pct_start=0.3)
+        scheduler_type = "per_iteration"  # Called every iteration
     elif config.scheduler == "step":
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer)
+        scheduler_type = "per_iteration"  # Called every iteration
+    elif config.scheduler == "plateau":
+        # ReduceLROnPlateau: reduce LR when val_mae stops improving
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode='min',  # minimize val_mae
+            factor=0.5,  # reduce LR by half
+            patience=10,  # wait 10 epochs before reducing
+            verbose=True,
+            min_lr=1e-6
+        )
+        scheduler_type = "per_epoch_with_metric"  # Called after validation with metric
+    else:
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda epoch: 1.0)
+        scheduler_type = "per_iteration"
 
     if resume ==1:
         scheduler.load_state_dict(checkpoint["lr_scheduler"])
@@ -344,8 +361,9 @@ def train_dgl(config: Union[TrainingConfig, Dict[str, Any]], model: nn.Module = 
     # ignite event handlers:
     trainer.add_event_handler(Events.EPOCH_COMPLETED, TerminateOnNan())
 
-    # apply learning rate scheduler
-    trainer.add_event_handler(Events.ITERATION_COMPLETED, lambda engine: scheduler.step())
+    # apply learning rate scheduler (only for per-iteration schedulers)
+    if scheduler_type == "per_iteration":
+        trainer.add_event_handler(Events.ITERATION_COMPLETED, lambda engine: scheduler.step())
 
     # Setup metric tracking based on task type
     if classification:
@@ -411,6 +429,14 @@ def train_dgl(config: Union[TrainingConfig, Dict[str, Any]], model: nn.Module = 
         tmetrics = train_evaluator.state.metrics
         vmetrics = evaluator.state.metrics
         tstmetrics = test_evaluator.state.metrics
+
+        # Apply learning rate scheduler based on validation metric (for plateau scheduler)
+        if scheduler_type == "per_epoch_with_metric":
+            # Use val_mae for regression, val_accuracy for classification
+            if classification:
+                scheduler.step(vmetrics.get('accuracy', vmetrics['loss']))
+            else:
+                scheduler.step(vmetrics['mae'])
 
         for metric in metrics.keys():
             tm = tmetrics[metric]
