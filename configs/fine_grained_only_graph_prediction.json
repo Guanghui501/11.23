@@ -1,0 +1,27 @@
+{
+  "model": "alignn",
+  "dataset": "jarvis",
+  "target": "formation_energy_peratom",
+
+  "alignn_layers": 4,
+  "gcn_layers": 4,
+  "hidden_features": 256,
+  "embedding_features": 64,
+  "graph_dropout": 0.0,
+
+  "use_middle_fusion": false,
+
+  "use_fine_grained_attention": true,
+  "fine_grained_hidden_dim": 256,
+  "fine_grained_num_heads": 8,
+  "mask_stopwords": true,
+
+  "use_cross_modal_attention": false,
+
+  "use_only_graph_for_prediction": true,
+
+  "batch_size": 64,
+  "epochs": 300,
+  "learning_rate": 0.01,
+  "optimizer": "adamw"
+}
