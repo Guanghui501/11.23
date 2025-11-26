@@ -574,6 +574,9 @@ class ALIGNNConfig(BaseSettings):
     contrastive_loss_weight: float = 0.1
     contrastive_temperature: float = 0.1
 
+    # Prediction settings
+    use_only_graph_for_prediction: bool = False  # Use only graph features for final prediction (text only used to enhance graph via attention)
+
     # if link == log, apply `exp` to final outputs
     # to constrain predictions to be positive
     link: Literal["identity", "log", "logit"] = "identity"
@@ -800,6 +803,8 @@ class ALIGNN(nn.Module):
 
         # Cross-modal attention module (global level, for backward compatibility)
         self.use_cross_modal_attention = config.use_cross_modal_attention
+        self.use_only_graph_for_prediction = config.use_only_graph_for_prediction
+
         if self.use_cross_modal_attention:
             self.cross_modal_attention = CrossModalAttention(
                 graph_dim=64,  # After graph_projection
@@ -808,13 +813,25 @@ class ALIGNN(nn.Module):
                 num_heads=config.cross_modal_num_heads,
                 dropout=config.cross_modal_dropout
             )
-            # Fusion layer after cross-modal attention (average fusion)
-            self.fc1 = nn.Linear(64, 64)  # Averaged: both are 64-dim
-            self.fc = nn.Linear(64, config.output_features)
+            # Fusion layer after cross-modal attention
+            if self.use_only_graph_for_prediction:
+                # Only use graph features for prediction (text only used for enhancement)
+                self.fc1 = nn.Linear(64, 64)  # Graph only: 64-dim
+                self.fc = nn.Linear(64, config.output_features)
+            else:
+                # Average fusion: both are 64-dim
+                self.fc1 = nn.Linear(64, 64)
+                self.fc = nn.Linear(64, config.output_features)
         else:
-            # Original simple concatenation
-            self.fc1 = nn.Linear(128, 64)
-            self.fc = nn.Linear(64, config.output_features)
+            # Original behavior
+            if self.use_only_graph_for_prediction:
+                # Only use graph features
+                self.fc1 = nn.Linear(64, 64)
+                self.fc = nn.Linear(64, config.output_features)
+            else:
+                # Concatenation of graph and text
+                self.fc1 = nn.Linear(128, 64)
+                self.fc = nn.Linear(64, config.output_features)
 
         # Contrastive learning module
         self.use_contrastive_loss = config.use_contrastive_loss
@@ -999,15 +1016,28 @@ class ALIGNN(nn.Module):
             else:
                 enhanced_graph, enhanced_text = self.cross_modal_attention(h, text_emb)
 
-            # Average fusion of enhanced features
-            h = (enhanced_graph + enhanced_text) / 2  # [batch, 64]
-            h = F.relu(self.fc1(h))
-            out = self.fc(h)
+            # Final prediction
+            if self.use_only_graph_for_prediction:
+                # Use only graph features (text used only for enhancement)
+                h = enhanced_graph  # [batch, 64]
+                h = F.relu(self.fc1(h))
+                out = self.fc(h)
+            else:
+                # Average fusion of enhanced features
+                h = (enhanced_graph + enhanced_text) / 2  # [batch, 64]
+                h = F.relu(self.fc1(h))
+                out = self.fc(h)
         else:
-            # Original simple concatenation
-            h = torch.cat((h, text_emb), 1)
-            h = F.relu(self.fc1(h))
-            out = self.fc(h)
+            # Original behavior
+            if self.use_only_graph_for_prediction:
+                # Use only graph features
+                h = F.relu(self.fc1(h))
+                out = self.fc(h)
+            else:
+                # Simple concatenation of graph and text
+                h = torch.cat((h, text_emb), 1)
+                h = F.relu(self.fc1(h))
+                out = self.fc(h)
 
         if self.link:
             out = self.link(out)

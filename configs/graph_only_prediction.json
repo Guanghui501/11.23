@@ -14,13 +14,15 @@
   "use_fine_grained_attention": true,
   "fine_grained_hidden_dim": 256,
   "fine_grained_num_heads": 8,
-  "mask_stopwords": true,
+  "mask_stopwords": false,
 
   "use_cross_modal_attention": true,
   "cross_modal_hidden_dim": 256,
   "cross_modal_num_heads": 4,
 
   "use_only_graph_for_prediction": true,
+
+  "use_contrastive_loss": false,
 
   "batch_size": 64,
   "epochs": 300,
