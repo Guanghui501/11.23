@@ -113,6 +113,9 @@ def get_parser():
                         help='权重衰减')
     parser.add_argument('--warmup_steps', type=int, default=2000,
                         help='学习率warmup步数')
+    parser.add_argument('--scheduler', type=str, default='plateau',
+                        choices=['onecycle', 'none', 'step', 'plateau'],
+                        help='学习率调度器类型 (plateau: 监控val_mae自动降低学习率)')
 
     # 模型参数
     parser.add_argument('--alignn_layers', type=int, default=4,
@@ -520,7 +523,7 @@ def create_config(args):
         "warmup_steps": args.warmup_steps,
         "criterion": "bce" if args.classification else "mse",
         "optimizer": "adamw",
-        "scheduler": "onecycle",
+        "scheduler": args.scheduler,
 
         "pin_memory": False,
         "save_dataloader": False,
@@ -569,6 +572,10 @@ def main():
     print(f"  训练轮数: {args.epochs}")
     print(f"  学习率: {args.learning_rate}")
     print(f"  权重衰减: {args.weight_decay}")
+    print(f"  学习率调度器: {args.scheduler}")
+    if args.scheduler == "plateau":
+        print(f"    → 监控指标: val_mae (回归) / val_accuracy (分类)")
+        print(f"    → 降低因子: 0.5, 耐心值: 10 epochs")
     print(f"  任务类型: {'分类' if args.classification else '回归'}")
     if args.classification:
         print(f"  分类阈值: {args.classification_threshold}")
