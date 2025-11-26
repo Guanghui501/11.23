@@ -233,7 +233,6 @@ def train_dgl(config: Union[TrainingConfig, Dict[str, Any]], model: nn.Module = 
             mode='min',  # minimize val_mae
             factor=0.5,  # reduce LR by half
             patience=10,  # wait 10 epochs before reducing
-            verbose=True,
             min_lr=1e-6
         )
         scheduler_type = "per_epoch_with_metric"  # Called after validation with metric
