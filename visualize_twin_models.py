@@ -51,7 +51,8 @@ def extract_features(model, loader, device, max_samples=None, feature_stage='fin
             - 'base': graph_base (GCN后，所有注意力前)
             - 'middle': graph_middle (中期融合后)
             - 'fine': graph_fine (细粒度注意力后)
-            - 'final': graph_features (最终特征，默认)
+            - 'final': graph_features (最终图特征，默认)
+            - 'fused': graph + text 融合特征 (拼接)
     """
     features = []
     targets = []
@@ -62,7 +63,8 @@ def extract_features(model, loader, device, max_samples=None, feature_stage='fin
         'base': 'graph_base',
         'middle': 'graph_middle',
         'fine': 'graph_fine',
-        'final': 'graph_features'
+        'final': 'graph_features',
+        'fused': 'fused'  # 特殊标记
     }
 
     feature_key = stage_key_map.get(feature_stage, 'graph_features')
@@ -92,12 +94,24 @@ def extract_features(model, loader, device, max_samples=None, feature_stage='fin
             out = model(inputs, return_intermediate_features=True)
 
             # 根据指定阶段提取特征
-            feat = out.get(feature_key)
+            if feature_stage == 'fused':
+                # 提取图和文本特征并拼接
+                graph_feat = out.get('graph_features', out.get('graph_final'))
+                text_feat = out.get('text_features', out.get('text_final'))
 
-            # 如果指定阶段不存在，回退到其他阶段
-            if feat is None:
-                print(f"⚠️  警告: {feature_key} 不存在，尝试回退...")
-                feat = out.get('graph_features', out.get('graph_final', out.get('graph_base')))
+                if graph_feat is None or text_feat is None:
+                    print(f"⚠️  警告: 无法获取图或文本特征，尝试回退...")
+                    feat = out.get('graph_features', out.get('graph_base'))
+                else:
+                    # 拼接图和文本特征
+                    feat = torch.cat([graph_feat, text_feat], dim=1)
+            else:
+                feat = out.get(feature_key)
+
+                # 如果指定阶段不存在，回退到其他阶段
+                if feat is None:
+                    print(f"⚠️  警告: {feature_key} 不存在，尝试回退...")
+                    feat = out.get('graph_features', out.get('graph_final', out.get('graph_base')))
 
             features.append(feat.cpu().numpy())
             targets.append(y.cpu().numpy())
@@ -362,7 +376,8 @@ def create_summary_report(feat_base, feat_sga, targets, cka_score, save_dir, fea
         'base': 'GCN后，所有注意力前 (差异主要来自中期融合)',
         'middle': '中期融合后立即提取',
         'fine': '细粒度注意力后',
-        'final': '所有模块处理后的最终特征'
+        'final': '所有模块处理后的最终图特征',
+        'fused': '图+文本融合特征 (完整多模态表示)'
     }
 
     report = f"""
@@ -445,8 +460,8 @@ def main():
                        help='结果保存目录')
     parser.add_argument('--device', default='cuda', help='计算设备')
     parser.add_argument('--feature_stage', type=str, default='final',
-                       choices=['base', 'middle', 'fine', 'final'],
-                       help='提取特征的阶段: base=GCN后, middle=中期融合后, fine=细粒度注意力后, final=最终特征(默认)')
+                       choices=['base', 'middle', 'fine', 'final', 'fused'],
+                       help='提取特征的阶段: base=GCN后, middle=中期融合后, fine=细粒度注意力后, final=最终图特征(默认), fused=图+文本融合特征')
     args = parser.parse_args()
 
     # 创建保存目录
@@ -460,12 +475,15 @@ def main():
         'base': 'GCN后，所有注意力前 (Baseline: ALIGNN+GCN | SGANet: ALIGNN+中期融合+GCN)',
         'middle': '中期融合后立即提取 (仅SGANet有效)',
         'fine': '细粒度注意力后 (原子-文本token交互后)',
-        'final': '最终特征 (所有模块处理后)'
+        'final': '最终图特征 (所有模块处理后)',
+        'fused': '图+文本融合特征 (graph_features + text_features 拼接)'
     }
     print(f"\n🎯 特征提取阶段: {args.feature_stage}")
     print(f"   说明: {stage_descriptions[args.feature_stage]}")
     if args.feature_stage == 'base':
         print(f"   ⭐ 推荐用于评估中期融合的独立贡献")
+    elif args.feature_stage == 'fused':
+        print(f"   ⭐ 评估完整的多模态融合效果")
 
     # 加载数据
     print(f"\n📂 加载数据集: {args.dataset} - {args.property}")

@@ -94,42 +94,74 @@ python visualize_twin_models.py \
 --feature_stage final  # 或省略（默认值）
 ```
 
-**提取时机**：所有模块处理后的最终特征
+**提取时机**：所有模块处理后的最终图特征
 
 **对比内容**：
-- 完整的模型输出
-- 包含所有模块的综合效果
+- 完整的图模态输出
+- 包含所有模块的综合效果（但仅图特征）
 
 **适用场景**：
-- 评估整体模型性能
-- 端到端的特征质量对比
-- 不关注具体哪个模块的贡献
+- 评估整体模型的图表示质量
+- 端到端的图特征对比
+
+#### `--feature_stage fused` ⭐ **完整多模态融合**
+
+```bash
+--feature_stage fused
+```
+
+**提取时机**：最终的图特征 + 文本特征拼接
+
+**对比内容**：
+- `graph_features + text_features` 拼接
+- 完整的多模态表示
+
+**优点**：
+- ✅ 评估**完整的多模态融合**效果
+- ✅ 包含图和文本的所有信息
+- ✅ 最接近模型实际用于预测的特征
+
+**适用场景**：
+- 评估多模态融合的整体质量
+- 论文中展示最终模型的表示能力
+- 对比纯图模型 vs 多模态模型
+
+**特征维度**：
+- base/final: [batch, 256] (仅图特征)
+- fused: [batch, 512] (图256 + 文本256)
 
 ### 不同阶段对比的意义
 
-| 阶段 | 对比内容 | CKA预期 | 相关性预期 | 适用论文章节 |
-|-----|---------|---------|-----------|------------|
-| **base** | 中期融合的纯粹影响 | 0.85-0.95 | +10-20% | Ablation Study |
-| **middle** | 融合后vs融合+GCN | - | - | Module Analysis |
-| **fine** | 细粒度注意力贡献 | 0.90-0.97 | +5-15% | Attention Mechanism |
-| **final** | 整体模型性能 | 0.92-0.98 | +8-15% | Main Results |
+| 阶段 | 对比内容 | 特征维度 | CKA预期 | 相关性预期 | 适用论文章节 |
+|-----|---------|---------|---------|-----------|------------|
+| **base** | 中期融合的纯粹影响 | [N, 256] | 0.85-0.95 | +10-20% | Ablation Study |
+| **middle** | 融合后vs融合+GCN | [N, 256] | - | - | Module Analysis |
+| **fine** | 细粒度注意力贡献 | [N, 256] | 0.90-0.97 | +5-15% | Attention Mechanism |
+| **final** | 整体图特征性能 | [N, 256] | 0.92-0.98 | +8-15% | Main Results |
+| **fused** ⭐ | 完整多模态融合 | [N, 512] | 0.88-0.96 | +15-25% | **Main Results** |
 
 ### 推荐的实验流程
 
 ```bash
-# 1. 首先用 base 验证中期融合有效性
+# 1. 首先用 base 验证中期融合的独立贡献
 python visualize_twin_models.py \
     --ckpt_base baseline.pt --ckpt_sga sganet.pt \
     --feature_stage base --save_dir ./viz_base
 
-# 2. 用 final 展示整体性能
+# 2. 用 fused 展示完整多模态融合效果（推荐用于主结果）
+python visualize_twin_models.py \
+    --ckpt_base baseline.pt --ckpt_sga sganet.pt \
+    --feature_stage fused --save_dir ./viz_fused
+
+# 3. (可选) 用 final 对比仅图特征的性能
 python visualize_twin_models.py \
     --ckpt_base baseline.pt --ckpt_sga sganet.pt \
     --feature_stage final --save_dir ./viz_final
 
-# 3. 对比两者，说明：
-#    - base: 中期融合本身的贡献
-#    - final: 融合+注意力的综合效果
+# 4. 对比分析：
+#    - base:  中期融合的纯粹贡献（GCN后，注意力前）
+#    - fused: 完整多模态表示（图+文本）⭐ 论文主结果
+#    - final: 仅图特征表示
 ```
 
 ## 生成的图表

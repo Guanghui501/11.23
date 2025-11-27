@@ -28,6 +28,26 @@ sns.set_style("whitegrid")
 plt.rcParams['font.size'] = 10
 
 
+def centered_kernel_alignment(X, Y):
+    """
+    计算 CKA (Centered Kernel Alignment) 相似度
+
+    Args:
+        X: 特征矩阵1 [N, D1]
+        Y: 特征矩阵2 [N, D2]
+
+    Returns:
+        CKA score (0-1之间，越高越相似)
+    """
+    X = X - X.mean(axis=0)
+    Y = Y - Y.mean(axis=0)
+    K = X @ X.T
+    L = Y @ Y.T
+    hsic = np.sum(K * L)
+    denom = np.sqrt(np.sum(K * K) * np.sum(L * L))
+    return hsic / denom if denom > 0 else 0.0
+
+
 class FusionComparator:
     """融合机制对比器"""
 
@@ -536,6 +556,214 @@ class FusionComparator:
         print(f"✅ 回归指标对比图已保存: {save_path}")
         plt.close()
 
+    def compute_cka_matrix(self, features_dict, save_dir):
+        """
+        计算所有特征对之间的 CKA 相似度矩阵
+
+        Args:
+            features_dict: 特征字典
+            save_dir: 保存目录
+
+        Returns:
+            CKA 矩阵 DataFrame
+        """
+        print("\n🔍 计算 CKA 相似度矩阵...")
+
+        # 获取所有有效特征名
+        feature_names = [name for name, feats in features_dict.items()
+                        if feats is not None and len(feats) > 0]
+
+        if len(feature_names) < 2:
+            print("⚠️  特征数量不足，无法计算 CKA 矩阵")
+            return None
+
+        # 初始化 CKA 矩阵
+        n_features = len(feature_names)
+        cka_matrix = np.zeros((n_features, n_features))
+
+        # 计算所有特征对的 CKA
+        for i, name_i in enumerate(feature_names):
+            for j, name_j in enumerate(feature_names):
+                if i == j:
+                    cka_matrix[i, j] = 1.0
+                elif i < j:
+                    print(f"   计算 CKA: {name_i} vs {name_j}")
+                    cka_score = centered_kernel_alignment(
+                        features_dict[name_i],
+                        features_dict[name_j]
+                    )
+                    cka_matrix[i, j] = cka_score
+                    cka_matrix[j, i] = cka_score  # 对称矩阵
+
+        # 创建 DataFrame
+        cka_df = pd.DataFrame(cka_matrix,
+                             index=feature_names,
+                             columns=feature_names)
+
+        # 保存为 CSV
+        save_path = os.path.join(save_dir, 'cka_similarity_matrix.csv')
+        cka_df.to_csv(save_path)
+        print(f"\n✅ CKA 矩阵已保存: {save_path}")
+        print("\n" + cka_df.to_string())
+
+        return cka_df
+
+    def visualize_cka_matrix(self, cka_df, save_dir):
+        """
+        可视化 CKA 相似度矩阵
+
+        Args:
+            cka_df: CKA 矩阵 DataFrame
+            save_dir: 保存目录
+        """
+        print("\n📊 生成 CKA 相似度热图...")
+
+        if cka_df is None or len(cka_df) == 0:
+            print("⚠️  没有可视化的 CKA 数据")
+            return
+
+        # 创建图形
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        # 绘制热图
+        sns.heatmap(cka_df,
+                   annot=True,  # 显示数值
+                   fmt='.3f',   # 保留3位小数
+                   cmap='RdYlGn',  # 红黄绿配色
+                   vmin=0.0,
+                   vmax=1.0,
+                   center=0.5,
+                   square=True,
+                   linewidths=0.5,
+                   cbar_kws={'label': 'CKA Similarity'},
+                   ax=ax)
+
+        ax.set_title('CKA Similarity Matrix Between Different Fusion Stages',
+                    fontsize=14, fontweight='bold', pad=15)
+        ax.set_xlabel('Features', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Features', fontsize=12, fontweight='bold')
+
+        # 旋转标签
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+
+        plt.tight_layout()
+        save_path = os.path.join(save_dir, 'cka_similarity_heatmap.png')
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"✅ CKA 热图已保存: {save_path}")
+        plt.close()
+
+        # 生成 CKA 分数摘要
+        self._generate_cka_summary(cka_df, save_dir)
+
+    def _generate_cka_summary(self, cka_df, save_dir):
+        """
+        生成 CKA 分数摘要报告
+
+        Args:
+            cka_df: CKA 矩阵 DataFrame
+            save_dir: 保存目录
+        """
+        print("\n📝 生成 CKA 分数摘要...")
+
+        report_lines = []
+        report_lines.append("=" * 70)
+        report_lines.append("CKA Similarity Score Summary Report")
+        report_lines.append("=" * 70)
+        report_lines.append("")
+
+        # 1. 整体统计
+        # 提取上三角（不包括对角线）
+        n = len(cka_df)
+        upper_tri_indices = np.triu_indices(n, k=1)
+        upper_tri_values = cka_df.values[upper_tri_indices]
+
+        report_lines.append("📊 Overall Statistics:")
+        report_lines.append(f"  • Mean CKA Score: {np.mean(upper_tri_values):.4f}")
+        report_lines.append(f"  • Median CKA Score: {np.median(upper_tri_values):.4f}")
+        report_lines.append(f"  • Min CKA Score: {np.min(upper_tri_values):.4f}")
+        report_lines.append(f"  • Max CKA Score: {np.max(upper_tri_values):.4f}")
+        report_lines.append(f"  • Std CKA Score: {np.std(upper_tri_values):.4f}")
+        report_lines.append("")
+
+        # 2. 最相似的特征对（Top 5）
+        report_lines.append("🔝 Top 5 Most Similar Feature Pairs:")
+        similar_pairs = []
+        for i in range(n):
+            for j in range(i+1, n):
+                similar_pairs.append((
+                    cka_df.index[i],
+                    cka_df.columns[j],
+                    cka_df.iloc[i, j]
+                ))
+        similar_pairs.sort(key=lambda x: x[2], reverse=True)
+
+        for rank, (feat1, feat2, score) in enumerate(similar_pairs[:5], 1):
+            report_lines.append(f"  {rank}. {feat1} ↔ {feat2}: {score:.4f}")
+        report_lines.append("")
+
+        # 3. 最不相似的特征对（Top 5）
+        report_lines.append("🔻 Top 5 Most Dissimilar Feature Pairs:")
+        for rank, (feat1, feat2, score) in enumerate(similar_pairs[-5:][::-1], 1):
+            report_lines.append(f"  {rank}. {feat1} ↔ {feat2}: {score:.4f}")
+        report_lines.append("")
+
+        # 4. 融合阶段的影响分析
+        report_lines.append("🔬 Fusion Stage Impact Analysis:")
+
+        # 检查特定的融合阶段对
+        stage_pairs = [
+            ('graph_base', 'graph_middle', '中期融合的影响'),
+            ('graph_middle', 'graph_fine', '细粒度注意力的影响'),
+            ('graph_fine', 'graph_cross', '全局注意力的影响'),
+            ('graph_cross', 'graph_final', '最终融合的影响'),
+            ('graph_base', 'graph_final', '整体融合效果'),
+            ('text_base', 'text_final', '文本模态的变化'),
+        ]
+
+        for feat1, feat2, description in stage_pairs:
+            if feat1 in cka_df.index and feat2 in cka_df.columns:
+                score = cka_df.loc[feat1, feat2]
+                report_lines.append(f"  • {description}")
+                report_lines.append(f"    {feat1} → {feat2}: {score:.4f}")
+
+                # 解释分数
+                if score > 0.9:
+                    interpretation = "极高相似度 - 融合影响较小"
+                elif score > 0.7:
+                    interpretation = "高相似度 - 融合保留了主要信息"
+                elif score > 0.5:
+                    interpretation = "中等相似度 - 融合带来了显著变化"
+                else:
+                    interpretation = "低相似度 - 融合大幅改变了特征空间"
+                report_lines.append(f"    解释: {interpretation}")
+                report_lines.append("")
+
+        # 5. 建议
+        report_lines.append("💡 Insights and Recommendations:")
+        avg_cka = np.mean(upper_tri_values)
+        if avg_cka > 0.85:
+            report_lines.append("  • 特征空间整体相似度很高，可能存在过度融合")
+            report_lines.append("  • 建议: 考虑减少融合层数或调整融合强度")
+        elif avg_cka > 0.65:
+            report_lines.append("  • 特征空间保持了适度的相似性和差异性")
+            report_lines.append("  • 建议: 当前融合机制较为合理")
+        else:
+            report_lines.append("  • 不同阶段的特征差异较大")
+            report_lines.append("  • 建议: 分析是否有过度变换导致信息损失")
+
+        report_lines.append("")
+        report_lines.append("=" * 70)
+
+        # 保存报告
+        report_text = "\n".join(report_lines)
+        save_path = os.path.join(save_dir, 'cka_summary_report.txt')
+        with open(save_path, 'w', encoding='utf-8') as f:
+            f.write(report_text)
+
+        print(f"✅ CKA 摘要报告已保存: {save_path}")
+        print("\n" + report_text)
+
 
 def main():
     parser = argparse.ArgumentParser(description='对比不同融合机制的效果 (v2)')
@@ -650,6 +878,13 @@ def main():
 
     # 计算回归指标
     regression_metrics_df = comparator.compute_regression_metrics(features_dict, targets, args.save_dir)
+
+    # 计算 CKA 相似度矩阵
+    cka_df = comparator.compute_cka_matrix(features_dict, args.save_dir)
+
+    # 可视化 CKA 矩阵
+    if cka_df is not None:
+        comparator.visualize_cka_matrix(cka_df, args.save_dir)
 
     print(f"\n🎉 分析完成! 结果保存在: {args.save_dir}")
 
