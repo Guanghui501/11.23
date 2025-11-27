@@ -42,11 +42,31 @@ def load_model(path, device):
     return model
 
 
-def extract_features(model, loader, device, max_samples=None):
-    """提取特征"""
+def extract_features(model, loader, device, max_samples=None, feature_stage='final'):
+    """
+    提取特征
+
+    Args:
+        feature_stage: 特征阶段选择
+            - 'base': graph_base (GCN后，所有注意力前)
+            - 'middle': graph_middle (中期融合后)
+            - 'fine': graph_fine (细粒度注意力后)
+            - 'final': graph_features (最终特征，默认)
+    """
     features = []
     targets = []
     sample_count = 0
+
+    # 特征键映射
+    stage_key_map = {
+        'base': 'graph_base',
+        'middle': 'graph_middle',
+        'fine': 'graph_fine',
+        'final': 'graph_features'
+    }
+
+    feature_key = stage_key_map.get(feature_stage, 'graph_features')
+    print(f"   提取阶段: {feature_stage} (键: {feature_key})")
 
     with torch.no_grad():
         for batch in tqdm(loader, desc="提取特征"):
@@ -71,8 +91,13 @@ def extract_features(model, loader, device, max_samples=None):
             inputs = (g, lg, text) if lg is not None else (g, text)
             out = model(inputs, return_intermediate_features=True)
 
-            # 提取 graph_features (最终的图特征)
-            feat = out.get('graph_features', out.get('graph_final', out.get('graph_base')))
+            # 根据指定阶段提取特征
+            feat = out.get(feature_key)
+
+            # 如果指定阶段不存在，回退到其他阶段
+            if feat is None:
+                print(f"⚠️  警告: {feature_key} 不存在，尝试回退...")
+                feat = out.get('graph_features', out.get('graph_final', out.get('graph_base')))
 
             features.append(feat.cpu().numpy())
             targets.append(y.cpu().numpy())
@@ -95,7 +120,7 @@ def centered_kernel_alignment(X, Y):
     return hsic / denom if denom > 0 else 0.0
 
 
-def plot_tsne_comparison(feat_base, feat_sga, targets, save_dir):
+def plot_tsne_comparison(feat_base, feat_sga, targets, save_dir, feature_stage='final'):
     """t-SNE 可视化对比"""
     print("\n📊 生成 t-SNE 可视化...")
 
@@ -112,11 +137,14 @@ def plot_tsne_comparison(feat_base, feat_sga, targets, save_dir):
     # 统一颜色范围
     vmin, vmax = targets.min(), targets.max()
 
+    # 标题后缀
+    stage_suffix = f" [{feature_stage.upper()} stage]"
+
     # Baseline
     scatter1 = axes[0].scatter(tsne_base[:, 0], tsne_base[:, 1],
                                c=targets, cmap='viridis', alpha=0.6, s=20,
                                vmin=vmin, vmax=vmax)
-    axes[0].set_title('Baseline Model', fontsize=14, fontweight='bold')
+    axes[0].set_title('Baseline Model' + stage_suffix, fontsize=14, fontweight='bold')
     axes[0].set_xlabel('t-SNE Dimension 1', fontsize=12)
     axes[0].set_ylabel('t-SNE Dimension 2', fontsize=12)
     axes[0].grid(True, alpha=0.3)
@@ -125,7 +153,7 @@ def plot_tsne_comparison(feat_base, feat_sga, targets, save_dir):
     scatter2 = axes[1].scatter(tsne_sga[:, 0], tsne_sga[:, 1],
                                c=targets, cmap='viridis', alpha=0.6, s=20,
                                vmin=vmin, vmax=vmax)
-    axes[1].set_title('SGANet (With Middle Fusion)', fontsize=14, fontweight='bold')
+    axes[1].set_title('SGANet (With Middle Fusion)' + stage_suffix, fontsize=14, fontweight='bold')
     axes[1].set_xlabel('t-SNE Dimension 1', fontsize=12)
     axes[1].set_ylabel('t-SNE Dimension 2', fontsize=12)
     axes[1].grid(True, alpha=0.3)
@@ -141,7 +169,7 @@ def plot_tsne_comparison(feat_base, feat_sga, targets, save_dir):
     plt.close()
 
 
-def plot_pca_comparison(feat_base, feat_sga, targets, save_dir):
+def plot_pca_comparison(feat_base, feat_sga, targets, save_dir, feature_stage='final'):
     """PCA 可视化对比"""
     print("\n📊 生成 PCA 可视化...")
 
@@ -154,11 +182,14 @@ def plot_pca_comparison(feat_base, feat_sga, targets, save_dir):
 
     vmin, vmax = targets.min(), targets.max()
 
+    # 标题后缀
+    stage_suffix = f" [{feature_stage.upper()}]"
+
     # Baseline
     scatter1 = axes[0].scatter(pca_base[:, 0], pca_base[:, 1],
                                c=targets, cmap='viridis', alpha=0.6, s=20,
                                vmin=vmin, vmax=vmax)
-    axes[0].set_title('Baseline Model (PCA)', fontsize=14, fontweight='bold')
+    axes[0].set_title('Baseline Model (PCA)' + stage_suffix, fontsize=14, fontweight='bold')
     axes[0].set_xlabel('PC 1', fontsize=12)
     axes[0].set_ylabel('PC 2', fontsize=12)
     axes[0].grid(True, alpha=0.3)
@@ -167,7 +198,7 @@ def plot_pca_comparison(feat_base, feat_sga, targets, save_dir):
     scatter2 = axes[1].scatter(pca_sga[:, 0], pca_sga[:, 1],
                                c=targets, cmap='viridis', alpha=0.6, s=20,
                                vmin=vmin, vmax=vmax)
-    axes[1].set_title('SGANet (PCA)', fontsize=14, fontweight='bold')
+    axes[1].set_title('SGANet (PCA)' + stage_suffix, fontsize=14, fontweight='bold')
     axes[1].set_xlabel('PC 1', fontsize=12)
     axes[1].set_ylabel('PC 2', fontsize=12)
     axes[1].grid(True, alpha=0.3)
@@ -312,7 +343,7 @@ def plot_feature_distribution(feat_base, feat_sga, save_dir):
     plt.close()
 
 
-def create_summary_report(feat_base, feat_sga, targets, cka_score, save_dir):
+def create_summary_report(feat_base, feat_sga, targets, cka_score, save_dir, feature_stage='final'):
     """生成总结报告"""
     print("\n📝 生成总结报告...")
 
@@ -326,10 +357,22 @@ def create_summary_report(feat_base, feat_sga, targets, cka_score, save_dir):
     stats_base = get_stats(feat_base, targets)
     stats_sga = get_stats(feat_sga, targets)
 
+    # 阶段说明
+    stage_explanations = {
+        'base': 'GCN后，所有注意力前 (差异主要来自中期融合)',
+        'middle': '中期融合后立即提取',
+        'fine': '细粒度注意力后',
+        'final': '所有模块处理后的最终特征'
+    }
+
     report = f"""
 ╔═══════════════════════════════════════════════════════════════╗
 ║         Twin Model Feature Space Comparison Report           ║
 ╚═══════════════════════════════════════════════════════════════╝
+
+Feature Extraction Stage: {feature_stage.upper()}
+{stage_explanations.get(feature_stage, '')}
+
 
 1. Feature Structure Similarity (CKA Score)
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -401,6 +444,9 @@ def main():
     parser.add_argument('--save_dir', default='./twin_model_visualization',
                        help='结果保存目录')
     parser.add_argument('--device', default='cuda', help='计算设备')
+    parser.add_argument('--feature_stage', type=str, default='final',
+                       choices=['base', 'middle', 'fine', 'final'],
+                       help='提取特征的阶段: base=GCN后, middle=中期融合后, fine=细粒度注意力后, final=最终特征(默认)')
     args = parser.parse_args()
 
     # 创建保存目录
@@ -408,6 +454,18 @@ def main():
 
     device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     print(f"🖥️  使用设备: {device}")
+
+    # 显示特征提取阶段
+    stage_descriptions = {
+        'base': 'GCN后，所有注意力前 (Baseline: ALIGNN+GCN | SGANet: ALIGNN+中期融合+GCN)',
+        'middle': '中期融合后立即提取 (仅SGANet有效)',
+        'fine': '细粒度注意力后 (原子-文本token交互后)',
+        'final': '最终特征 (所有模块处理后)'
+    }
+    print(f"\n🎯 特征提取阶段: {args.feature_stage}")
+    print(f"   说明: {stage_descriptions[args.feature_stage]}")
+    if args.feature_stage == 'base':
+        print(f"   ⭐ 推荐用于评估中期融合的独立贡献")
 
     # 加载数据
     print(f"\n📂 加载数据集: {args.dataset} - {args.property}")
@@ -446,11 +504,13 @@ def main():
     )
 
     # 加载模型并提取特征
+    print(f"\n📦 提取基线模型特征:")
     model_base = load_model(args.ckpt_base, device)
-    feat_base, targets = extract_features(model_base, test_loader, device, args.max_samples)
+    feat_base, targets = extract_features(model_base, test_loader, device, args.max_samples, args.feature_stage)
 
+    print(f"\n📦 提取SGANet模型特征:")
     model_sga = load_model(args.ckpt_sga, device)
-    feat_sga, _ = extract_features(model_sga, test_loader, device, args.max_samples)
+    feat_sga, _ = extract_features(model_sga, test_loader, device, args.max_samples, args.feature_stage)
 
     print(f"\n✅ 特征提取完成:")
     print(f"   Baseline: {feat_base.shape}")
@@ -467,12 +527,12 @@ def main():
     print("开始生成可视化图表...")
     print("="*60)
 
-    plot_tsne_comparison(feat_base, feat_sga, targets, args.save_dir)
-    plot_pca_comparison(feat_base, feat_sga, targets, args.save_dir)
+    plot_tsne_comparison(feat_base, feat_sga, targets, args.save_dir, args.feature_stage)
+    plot_pca_comparison(feat_base, feat_sga, targets, args.save_dir, args.feature_stage)
     plot_correlation_heatmap(feat_base, feat_sga, targets, args.save_dir)
     plot_metrics_comparison(feat_base, feat_sga, targets, cka_score, args.save_dir)
     plot_feature_distribution(feat_base, feat_sga, args.save_dir)
-    create_summary_report(feat_base, feat_sga, targets, cka_score, args.save_dir)
+    create_summary_report(feat_base, feat_sga, targets, cka_score, args.save_dir, args.feature_stage)
 
     print("\n" + "="*60)
     print(f"🎉 所有可视化完成! 结果保存在: {args.save_dir}")
