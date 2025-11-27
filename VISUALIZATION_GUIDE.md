@@ -9,7 +9,8 @@ python visualize_twin_models.py \
     --ckpt_base /path/to/baseline_model/best_model.pt \
     --ckpt_sga /path/to/sganet_model/best_model.pt \
     --dataset jarvis \
-    --property mbj_bandgap
+    --property mbj_bandgap \
+    --feature_stage base  # 推荐：评估中期融合的独立贡献
 ```
 
 ### 完整参数
@@ -24,7 +25,111 @@ python visualize_twin_models.py \
     --max_samples 1000 \                             # 最大样本数（推荐500-2000）
     --batch_size 64 \
     --save_dir ./twin_model_visualization \          # 结果保存目录
-    --device cuda                                    # 使用GPU加速
+    --device cuda \                                  # 使用GPU加速
+    --feature_stage base                             # 特征提取阶段（见下方说明）
+```
+
+### 特征提取阶段选择 ⭐ NEW!
+
+使用 `--feature_stage` 参数选择在哪个阶段提取特征：
+
+#### `--feature_stage base` ⭐ **推荐用于评估中期融合**
+
+```bash
+python visualize_twin_models.py \
+    --ckpt_base baseline.pt \
+    --ckpt_sga sganet.pt \
+    --feature_stage base
+```
+
+**提取时机**：GCN层后，所有注意力机制前
+
+**对比内容**：
+- Baseline: ALIGNN + GCN
+- SGANet: ALIGNN + **中期融合** + GCN
+
+**优点**：
+- ✅ 差异**主要来自中期融合**
+- ✅ 不受注意力机制影响
+- ✅ 最能体现中期融合的独立贡献
+
+**适用场景**：
+- 验证中期融合模块的有效性
+- 论文中的消融实验
+- 理解融合如何改变GNN特征
+
+#### `--feature_stage middle`
+
+```bash
+--feature_stage middle
+```
+
+**提取时机**：中期融合后立即提取（ALIGNN层结束，GCN层前）
+
+**注意**：仅SGANet模型有此阶段，基线模型会回退到其他阶段
+
+**适用场景**：
+- 研究中期融合的即时影响
+- 对比"融合后+GCN"vs"仅融合后"
+
+#### `--feature_stage fine`
+
+```bash
+--feature_stage fine
+```
+
+**提取时机**：细粒度注意力后（原子-文本token交互后）
+
+**对比内容**：
+- 包含中期融合 + GCN + 细粒度注意力
+- 不包含全局跨模态注意力
+
+**适用场景**：
+- 评估细粒度注意力的贡献
+- 研究原子级别的跨模态交互
+
+#### `--feature_stage final` (默认)
+
+```bash
+--feature_stage final  # 或省略（默认值）
+```
+
+**提取时机**：所有模块处理后的最终特征
+
+**对比内容**：
+- 完整的模型输出
+- 包含所有模块的综合效果
+
+**适用场景**：
+- 评估整体模型性能
+- 端到端的特征质量对比
+- 不关注具体哪个模块的贡献
+
+### 不同阶段对比的意义
+
+| 阶段 | 对比内容 | CKA预期 | 相关性预期 | 适用论文章节 |
+|-----|---------|---------|-----------|------------|
+| **base** | 中期融合的纯粹影响 | 0.85-0.95 | +10-20% | Ablation Study |
+| **middle** | 融合后vs融合+GCN | - | - | Module Analysis |
+| **fine** | 细粒度注意力贡献 | 0.90-0.97 | +5-15% | Attention Mechanism |
+| **final** | 整体模型性能 | 0.92-0.98 | +8-15% | Main Results |
+
+### 推荐的实验流程
+
+```bash
+# 1. 首先用 base 验证中期融合有效性
+python visualize_twin_models.py \
+    --ckpt_base baseline.pt --ckpt_sga sganet.pt \
+    --feature_stage base --save_dir ./viz_base
+
+# 2. 用 final 展示整体性能
+python visualize_twin_models.py \
+    --ckpt_base baseline.pt --ckpt_sga sganet.pt \
+    --feature_stage final --save_dir ./viz_final
+
+# 3. 对比两者，说明：
+#    - base: 中期融合本身的贡献
+#    - final: 融合+注意力的综合效果
 ```
 
 ## 生成的图表
