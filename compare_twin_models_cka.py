@@ -455,8 +455,8 @@ def main():
                        help='数据集根目录')
     parser.add_argument('--batch_size', type=int, default=32,
                        help='批次大小')
-    parser.add_argument('--max_samples', type=int, default=500,
-                       help='最大样本数')
+    parser.add_argument('--max_samples', type=int, default=None,
+                       help='最大样本数（默认None使用完整测试集，仅用于快速调试）')
     parser.add_argument('--save_dir', type=str, default='./twin_cka_comparison',
                        help='结果保存目录')
     args = parser.parse_args()
@@ -487,13 +487,6 @@ def main():
         # 加载数据集
         df = load_dataset(cif_dir, id_prop_file, args.dataset, args.property)
         print(f"✅ 加载数据集: {len(df)} 样本")
-
-        # 采样
-        if args.max_samples and len(df) > args.max_samples:
-            print(f"⚠️  数据集过大，随机采样 {args.max_samples} 样本")
-            import random
-            random.seed(42)
-            df = random.sample(df, args.max_samples)
 
         # 获取模型1的配置
         config = model1.config if hasattr(model1, 'config') else None
@@ -529,23 +522,28 @@ def main():
             output_dir=args.save_dir
         )
 
-        print(f"✅ 测试集样本数: {len(test_loader.dataset)}")
+        test_set_size = len(test_loader.dataset)
+        print(f"✅ 测试集样本数: {test_set_size}")
+
+        if args.max_samples:
+            print(f"⚠️  警告: 设置了max_samples={args.max_samples}，仅用于快速调试")
+            print(f"   建议: 生产环境请使用完整测试集（移除--max_samples参数）")
 
     except Exception as e:
         print(f"❌ 加载数据集失败: {e}")
         raise
 
-    # 提取模型1的特征
+    # 提取模型1的特征（使用完整测试集）
     print("\n" + "=" * 80)
-    print(f"提取 {args.model1_name} 的特征")
+    print(f"提取 {args.model1_name} 的特征（测试集）")
     print("=" * 80)
     features_model1, targets1 = extract_all_stage_features(
         model1, test_loader, device, max_samples=args.max_samples
     )
 
-    # 提取模型2的特征
+    # 提取模型2的特征（使用完整测试集）
     print("\n" + "=" * 80)
-    print(f"提取 {args.model2_name} 的特征")
+    print(f"提取 {args.model2_name} 的特征（测试集）")
     print("=" * 80)
     features_model2, targets2 = extract_all_stage_features(
         model2, test_loader, device, max_samples=args.max_samples

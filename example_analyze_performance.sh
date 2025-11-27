@@ -3,6 +3,13 @@
 # 用于理解CKA相似度高的情况下，两个模型的实际预测性能差异
 
 # ============================================================================
+# 重要说明：
+# - 必须使用完整的测试集进行性能评估
+# - 不设置--max_samples参数（或设为None）
+# - 性能指标基于随机采样是不可靠的
+# ============================================================================
+
+# ============================================================================
 # 使用场景：
 # 当CKA相似度很高（如0.98）时，需要通过性能对比来判断：
 # 1. 融合机制是否真的有效（性能是否提升）
@@ -19,8 +26,9 @@ python analyze_model_performance.py \
     --property mbj_bandgap \
     --root_dir /public/home/ghzhang/crysmmnet-main/dataset \
     --batch_size 32 \
-    --max_samples 500 \
     --save_dir ./performance_analysis
+
+# 注意：移除了--max_samples参数，使用完整测试集
 
 # 输出文件:
 # - performance_analysis/performance_comparison.png    (6个子图的综合对比)

@@ -391,8 +391,8 @@ def main():
                        help='数据集根目录')
     parser.add_argument('--batch_size', type=int, default=32,
                        help='批次大小')
-    parser.add_argument('--max_samples', type=int, default=500,
-                       help='最大样本数')
+    parser.add_argument('--max_samples', type=int, default=None,
+                       help='最大样本数（默认None使用完整测试集，仅用于快速调试）')
     parser.add_argument('--save_dir', type=str, default='./performance_comparison',
                        help='结果保存目录')
     args = parser.parse_args()
@@ -418,12 +418,6 @@ def main():
         cif_dir, id_prop_file = get_dataset_paths(args.root_dir, args.dataset, args.property)
         df = load_dataset(cif_dir, id_prop_file, args.dataset, args.property)
         print(f"✅ 加载数据集: {len(df)} 样本")
-
-        if args.max_samples and len(df) > args.max_samples:
-            print(f"⚠️  数据集过大，随机采样 {args.max_samples} 样本")
-            import random
-            random.seed(42)
-            df = random.sample(df, args.max_samples)
 
         # 获取配置
         config = model1.config if hasattr(model1, 'config') else None
@@ -458,21 +452,26 @@ def main():
             output_dir=args.save_dir
         )
 
-        print(f"✅ 测试集样本数: {len(test_loader.dataset)}")
+        test_set_size = len(test_loader.dataset)
+        print(f"✅ 测试集样本数: {test_set_size}")
+
+        if args.max_samples:
+            print(f"⚠️  警告: 设置了max_samples={args.max_samples}，仅用于快速调试")
+            print(f"   建议: 生产环境请使用完整测试集（移除--max_samples参数）")
 
     except Exception as e:
         print(f"❌ 加载数据集失败: {e}")
         raise
 
-    # 获取模型1的预测
+    # 获取模型1的预测（使用完整测试集）
     print("\n" + "=" * 80)
-    print(f"获取 {args.model1_name} 的预测")
+    print(f"获取 {args.model1_name} 在测试集上的预测")
     print("=" * 80)
     pred1, targets = get_predictions(model1, test_loader, device, max_samples=args.max_samples)
 
-    # 获取模型2的预测
+    # 获取模型2的预测（使用完整测试集）
     print("\n" + "=" * 80)
-    print(f"获取 {args.model2_name} 的预测")
+    print(f"获取 {args.model2_name} 在测试集上的预测")
     print("=" * 80)
     pred2, _ = get_predictions(model2, test_loader, device, max_samples=args.max_samples)
 
