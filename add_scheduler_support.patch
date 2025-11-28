@@ -1,0 +1,12 @@
+# 如果需要支持lambda scheduler，在train_with_cross_modal_attention.py中做以下修改：
+
+## 修改1: 在get_parser()函数中添加参数（第115行附近）
+parser.add_argument('--scheduler', type=str, default='onecycle',
+                    choices=['onecycle', 'lambda', 'cosine', 'step'],
+                    help='学习率调度器类型')
+
+## 修改2: 在配置字典中使用该参数（第523行）
+"scheduler": args.scheduler,  # 改为使用args.scheduler
+
+## 修改3: 确保train.py支持lambda调度器
+# 检查train.py第219-226行，应该已经支持lambda（返回固定1.0）

@@ -38,7 +38,7 @@ python train_with_cross_modal_attention.py \
     --fine_grained_dropout 0.25 \
     --middle_fusion_dropout 0.15 \
     --learning_rate 0.0005 \
-    --scheduler lambda \
+    
     --output_dir $BASE_OUTPUT_DIR/exp1_1_regularization_conservative \
     2>&1 | tee $BASE_OUTPUT_DIR/exp1_1_log.txt
 
@@ -60,7 +60,7 @@ python train_with_cross_modal_attention.py \
     --fine_grained_dropout 0.3 \
     --middle_fusion_dropout 0.2 \
     --learning_rate 0.0005 \
-    --scheduler lambda \
+    
     --output_dir $BASE_OUTPUT_DIR/exp1_2_regularization_aggressive \
     2>&1 | tee $BASE_OUTPUT_DIR/exp1_2_log.txt
 
@@ -93,7 +93,7 @@ python train_with_cross_modal_attention.py \
     --cross_modal_dropout 0.15 \
     --fine_grained_dropout 0.25 \
     --learning_rate 0.0005 \
-    --scheduler lambda \
+    
     --output_dir $BASE_OUTPUT_DIR/exp2_1_fusion_2_3 \
     2>&1 | tee $BASE_OUTPUT_DIR/exp2_1_log.txt
 
@@ -118,7 +118,7 @@ python train_with_cross_modal_attention.py \
     --cross_modal_dropout 0.15 \
     --fine_grained_dropout 0.25 \
     --learning_rate 0.0005 \
-    --scheduler lambda \
+    
     --output_dir $BASE_OUTPUT_DIR/exp2_2_fusion_1_2 \
     2>&1 | tee $BASE_OUTPUT_DIR/exp2_2_log.txt
 
@@ -143,7 +143,7 @@ python train_with_cross_modal_attention.py \
     --cross_modal_dropout 0.15 \
     --fine_grained_dropout 0.25 \
     --learning_rate 0.0005 \
-    --scheduler lambda \
+    
     --output_dir $BASE_OUTPUT_DIR/exp2_3_fusion_1_2_3 \
     2>&1 | tee $BASE_OUTPUT_DIR/exp2_3_log.txt
 
@@ -258,7 +258,7 @@ python train_with_cross_modal_attention.py \
     --cross_modal_dropout 0.15 \
     --fine_grained_dropout 0.25 \
     --learning_rate 0.0005 \
-    --scheduler lambda \
+    
     --output_dir $BASE_OUTPUT_DIR/exp5_1_best_combined \
     2>&1 | tee $BASE_OUTPUT_DIR/exp5_1_log.txt
 
