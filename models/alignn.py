@@ -407,6 +407,10 @@ class FineGrainedCrossModalAttention(nn.Module):
 
         self.scale = self.head_dim ** -0.5
 
+        # Positional encoding for atoms to fix attention collapse
+        # This allows the model to distinguish atoms at different positions
+        self.atom_position_embedding = nn.Embedding(200, hidden_dim if use_projection else node_dim)
+
     def split_heads(self, x):
         """Split the last dimension into (num_heads, head_dim).
 
@@ -447,6 +451,12 @@ class FineGrainedCrossModalAttention(nn.Module):
         if self.use_projection:
             node_feat = self.node_proj_in(node_feat)  # [batch, num_atoms, hidden]
             token_feat = self.token_proj_in(token_feat)  # [batch, seq_len, hidden]
+
+        # Add positional encoding to atoms (CRITICAL FIX for attention collapse)
+        # This ensures each atom has unique positional information
+        positions = torch.arange(num_atoms, device=node_feat.device).unsqueeze(0).expand(batch_size, -1)
+        position_encoding = self.atom_position_embedding(positions)  # [batch, num_atoms, hidden_dim]
+        node_feat = node_feat + position_encoding
 
         attention_weights = {} if return_attention else None
 
