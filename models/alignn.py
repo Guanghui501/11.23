@@ -982,6 +982,8 @@ class ALIGNN(nn.Module):
         # Save features after fine-grained attention (if requested for ablation studies)
         graph_emb_after_fine = None
         text_emb_after_fine = None
+        enhanced_text_emb = None  # 用于最终融合的增强文本特征
+
         if return_intermediate_features and self.use_fine_grained_attention:
             # Graph features after fine-grained attention
             temp_graph_emb = self.readout(g, x)
@@ -992,6 +994,11 @@ class ALIGNN(nn.Module):
             text_emb_after_fine = enhanced_tokens[:, 0, :]  # CLS token
             text_emb_after_fine = self.text_projection(text_emb_after_fine).clone()
 
+        # 如果使用了Fine-grained Attention，提取增强后的文本特征用于最终融合
+        if self.use_fine_grained_attention:
+            enhanced_text_emb = enhanced_tokens[:, 0, :]  # CLS token [batch, 768]
+            enhanced_text_emb = self.text_projection(enhanced_text_emb)  # [batch, 64]
+
         # norm-activation-pool-classify
         graph_emb = self.readout(g, x)
         h = self.graph_projection(graph_emb)
@@ -1001,7 +1008,7 @@ class ALIGNN(nn.Module):
         # Multi-Modal Representation Fusion
         attention_weights = None
         if self.use_cross_modal_attention:
-            # Cross-modal attention fusion
+            # Cross-modal attention fusion (晚期融合)
             if return_attention:
                 enhanced_graph, enhanced_text, attention_weights = self.cross_modal_attention(
                     h, text_emb, return_attention=True
@@ -1013,9 +1020,16 @@ class ALIGNN(nn.Module):
             h = (enhanced_graph + enhanced_text) / 2  # [batch, 64]
             h = F.relu(self.fc1(h))
             out = self.fc(h)
+        elif self.use_fine_grained_attention:
+            # 使用Fine-grained Attention的增强特征进行平均融合
+            # h 已经是增强后的图特征（通过enhanced_nodes）
+            # enhanced_text_emb 是增强后的文本特征
+            h = (h + enhanced_text_emb) / 2  # [batch, 64] 平均融合
+            h = F.relu(self.fc1(h))
+            out = self.fc(h)
         else:
-            # Original simple concatenation
-            h = torch.cat((h, text_emb), 1)
+            # Original simple concatenation (当两种attention都不用时)
+            h = torch.cat((h, text_emb), 1)  # [batch, 128]
             h = F.relu(self.fc1(h))
             out = self.fc(h)
 
