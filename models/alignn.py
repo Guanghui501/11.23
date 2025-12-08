@@ -528,6 +528,121 @@ class FineGrainedCrossModalAttention(nn.Module):
             return enhanced_nodes, enhanced_tokens
 
 
+class GatedFusion(nn.Module):
+    """Gated fusion module for combining graph and text features.
+
+    This module uses learnable gates to dynamically control the contribution
+    of each modality (graph and text) in the final fused representation.
+    Unlike simple average or concatenation, this allows the model to learn
+    the optimal fusion strategy for each sample.
+    """
+
+    def __init__(self, feature_dim=64, hidden_dim=128, dropout=0.1, fusion_type='dual_gate'):
+        """Initialize gated fusion module.
+
+        Args:
+            feature_dim: Dimension of input features (both graph and text)
+            hidden_dim: Hidden dimension for gate computation
+            dropout: Dropout rate
+            fusion_type: Type of gating mechanism:
+                - 'single_gate': One gate controls trade-off between modalities
+                - 'dual_gate': Separate gates for each modality
+                - 'attention': Attention-based weighted fusion
+        """
+        super().__init__()
+        self.feature_dim = feature_dim
+        self.hidden_dim = hidden_dim
+        self.fusion_type = fusion_type
+
+        if fusion_type == 'single_gate':
+            # Single gate: g = σ(W[h_graph; h_text])
+            # Output: g * h_graph + (1-g) * h_text
+            self.gate_network = nn.Sequential(
+                nn.Linear(feature_dim * 2, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, 1),
+                nn.Sigmoid()
+            )
+        elif fusion_type == 'dual_gate':
+            # Dual gates: separate gates for graph and text
+            # g_graph = σ(W1[h_graph; h_text])
+            # g_text = σ(W2[h_graph; h_text])
+            # Output: g_graph * h_graph + g_text * h_text
+            self.graph_gate = nn.Sequential(
+                nn.Linear(feature_dim * 2, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, feature_dim),
+                nn.Sigmoid()
+            )
+            self.text_gate = nn.Sequential(
+                nn.Linear(feature_dim * 2, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, feature_dim),
+                nn.Sigmoid()
+            )
+        elif fusion_type == 'attention':
+            # Attention-based fusion
+            # α = softmax(W[h_graph; h_text])
+            # Output: α_graph * h_graph + α_text * h_text
+            self.attention = nn.Sequential(
+                nn.Linear(feature_dim * 2, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, 2)  # Output: [weight_graph, weight_text]
+            )
+        else:
+            raise ValueError(f"Unknown fusion_type: {fusion_type}")
+
+        self.layer_norm = nn.LayerNorm(feature_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, graph_feat, text_feat, return_gate_values=False):
+        """Apply gated fusion.
+
+        Args:
+            graph_feat: Graph features [batch_size, feature_dim]
+            text_feat: Text features [batch_size, feature_dim]
+            return_gate_values: Whether to return gate values (for interpretability)
+
+        Returns:
+            fused: Fused features [batch_size, feature_dim]
+            gate_values: (optional) Gate values for interpretability
+        """
+        # Concatenate features for gate computation
+        combined = torch.cat([graph_feat, text_feat], dim=-1)  # [batch, feature_dim*2]
+
+        if self.fusion_type == 'single_gate':
+            gate = self.gate_network(combined)  # [batch, 1]
+            fused = gate * graph_feat + (1 - gate) * text_feat
+            gate_values = {'gate': gate} if return_gate_values else None
+
+        elif self.fusion_type == 'dual_gate':
+            gate_graph = self.graph_gate(combined)  # [batch, feature_dim]
+            gate_text = self.text_gate(combined)    # [batch, feature_dim]
+            fused = gate_graph * graph_feat + gate_text * text_feat
+            gate_values = {'gate_graph': gate_graph, 'gate_text': gate_text} if return_gate_values else None
+
+        elif self.fusion_type == 'attention':
+            attn_logits = self.attention(combined)  # [batch, 2]
+            attn_weights = F.softmax(attn_logits, dim=-1)  # [batch, 2]
+            alpha_graph = attn_weights[:, 0:1]  # [batch, 1]
+            alpha_text = attn_weights[:, 1:2]   # [batch, 1]
+            fused = alpha_graph * graph_feat + alpha_text * text_feat
+            gate_values = {'alpha_graph': alpha_graph, 'alpha_text': alpha_text} if return_gate_values else None
+
+        # Layer normalization and dropout
+        fused = self.layer_norm(fused)
+        fused = self.dropout(fused)
+
+        if return_gate_values:
+            return fused, gate_values
+        else:
+            return fused
+
+
 class ALIGNNConfig(BaseSettings):
     """Hyperparameter schema for jarvisdgl.models.alignn."""
 
@@ -551,6 +666,12 @@ class ALIGNNConfig(BaseSettings):
     cross_modal_hidden_dim: int = 256
     cross_modal_num_heads: int = 4
     cross_modal_dropout: float = 0.1
+
+    # Fusion strategy settings
+    fusion_strategy: Literal["average", "concat", "gated"] = "gated"  # average: simple average, concat: concatenation, gated: learnable gated fusion
+    gated_fusion_type: Literal["single_gate", "dual_gate", "attention"] = "dual_gate"  # Type of gating mechanism
+    gated_fusion_hidden_dim: int = 128  # Hidden dimension for gate computation
+    gated_fusion_dropout: float = 0.1
 
     # Fine-grained attention settings (NEW!)
     use_fine_grained_attention: bool = False  # Enable fine-grained atom-token attention
@@ -808,11 +929,33 @@ class ALIGNN(nn.Module):
                 num_heads=config.cross_modal_num_heads,
                 dropout=config.cross_modal_dropout
             )
-            # Fusion layer after cross-modal attention (average fusion)
-            self.fc1 = nn.Linear(64, 64)  # Averaged: both are 64-dim
-            self.fc = nn.Linear(64, config.output_features)
+
+            # Fusion strategy: average, concat, or gated
+            self.fusion_strategy = config.fusion_strategy
+
+            if self.fusion_strategy == "gated":
+                # Use gated fusion instead of simple average
+                self.gated_fusion = GatedFusion(
+                    feature_dim=64,
+                    hidden_dim=config.gated_fusion_hidden_dim,
+                    dropout=config.gated_fusion_dropout,
+                    fusion_type=config.gated_fusion_type
+                )
+                self.fc1 = nn.Linear(64, 64)  # Gated fusion output: 64-dim
+                self.fc = nn.Linear(64, config.output_features)
+            elif self.fusion_strategy == "average":
+                # Simple average fusion (backward compatibility)
+                self.fc1 = nn.Linear(64, 64)  # Averaged: both are 64-dim
+                self.fc = nn.Linear(64, config.output_features)
+            elif self.fusion_strategy == "concat":
+                # Concatenation fusion
+                self.fc1 = nn.Linear(128, 64)  # Concatenated: 64+64=128
+                self.fc = nn.Linear(64, config.output_features)
+            else:
+                raise ValueError(f"Unknown fusion_strategy: {self.fusion_strategy}")
         else:
             # Original simple concatenation
+            self.fusion_strategy = "concat"
             self.fc1 = nn.Linear(128, 64)
             self.fc = nn.Linear(64, config.output_features)
 
@@ -990,6 +1133,7 @@ class ALIGNN(nn.Module):
 
         # Multi-Modal Representation Fusion
         attention_weights = None
+        gate_values = None
         if self.use_cross_modal_attention:
             # Cross-modal attention fusion
             if return_attention:
@@ -999,10 +1143,25 @@ class ALIGNN(nn.Module):
             else:
                 enhanced_graph, enhanced_text = self.cross_modal_attention(h, text_emb)
 
-            # Average fusion of enhanced features
-            h = (enhanced_graph + enhanced_text) / 2  # [batch, 64]
-            h = F.relu(self.fc1(h))
-            out = self.fc(h)
+            # Apply fusion strategy
+            if self.fusion_strategy == "gated":
+                # Gated fusion: learnable gates control the contribution of each modality
+                if return_attention:
+                    h, gate_values = self.gated_fusion(enhanced_graph, enhanced_text, return_gate_values=True)
+                else:
+                    h = self.gated_fusion(enhanced_graph, enhanced_text)
+                h = F.relu(self.fc1(h))
+                out = self.fc(h)
+            elif self.fusion_strategy == "average":
+                # Simple average fusion (backward compatibility)
+                h = (enhanced_graph + enhanced_text) / 2  # [batch, 64]
+                h = F.relu(self.fc1(h))
+                out = self.fc(h)
+            elif self.fusion_strategy == "concat":
+                # Concatenation fusion
+                h = torch.cat((enhanced_graph, enhanced_text), 1)  # [batch, 128]
+                h = F.relu(self.fc1(h))
+                out = self.fc(h)
         else:
             # Original simple concatenation
             h = torch.cat((h, text_emb), 1)
@@ -1049,6 +1208,9 @@ class ALIGNN(nn.Module):
                 # Fine-grained attention weights (new!)
                 if fine_grained_attention_weights is not None:
                     output_dict['fine_grained_attention_weights'] = fine_grained_attention_weights
+                # Gated fusion weights (new!)
+                if gate_values is not None:
+                    output_dict['gate_values'] = gate_values
 
             # Compute contrastive loss if enabled
             if self.use_contrastive_loss and self.training:
