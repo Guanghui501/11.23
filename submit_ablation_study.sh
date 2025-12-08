@@ -142,36 +142,8 @@ echo "=========================================="
 echo ""
 
 # 执行训练（完整参数列表，不使用数组）
-python train_with_cross_modal_attention.py \\
-    --root_dir ${DATA_ROOT} \\
-    --dataset jarvis \\
-    --property ${property} \\
-    --train_ratio 0.8 \\
-    --val_ratio 0.1 \\
-    --test_ratio 0.1 \\
-    --batch_size 64 \\
-    --epochs 100 \\
-    --learning_rate 5e-4 \\
-    --weight_decay 1e-3 \\
-    --warmup_steps 2000 \\
-    --alignn_layers 4 \\
-    --gcn_layers 4 \\
-    --hidden_features 256 \\
-    --graph_dropout 0.15 \\
-    --use_cross_modal False \\
-    --cross_modal_num_heads 2 \\
-    --use_middle_fusion ${use_middle} \\
-    --middle_fusion_layers 2 \\
-    --use_fine_grained_attention ${use_fg} \\
-    --middle_fusion_dropout 0.35 \\
-    --fine_grained_hidden_dim 256 \\
-    --fine_grained_num_heads 8 \\
-    --fine_grained_dropout 0.35 \\
-    --fine_grained_use_projection ${use_proj} \\
-    --early_stopping_patience 150 \\
-    --output_dir ${output_dir} \\
-    --num_workers 24 \\
-    --random_seed ${seed}
+# 注意：在heredoc中不使用反斜杠换行，直接写成一行
+python train_with_cross_modal_attention.py --root_dir ${DATA_ROOT} --dataset jarvis --property ${property} --train_ratio 0.8 --val_ratio 0.1 --test_ratio 0.1 --batch_size 64 --epochs 100 --learning_rate 5e-4 --weight_decay 1e-3 --warmup_steps 2000 --alignn_layers 4 --gcn_layers 4 --hidden_features 256 --graph_dropout 0.15 --use_cross_modal False --cross_modal_num_heads 2 --use_middle_fusion ${use_middle} --middle_fusion_layers 2 --use_fine_grained_attention ${use_fg} --middle_fusion_dropout 0.35 --fine_grained_hidden_dim 256 --fine_grained_num_heads 8 --fine_grained_dropout 0.35 --fine_grained_use_projection ${use_proj} --early_stopping_patience 150 --output_dir ${output_dir} --num_workers 24 --random_seed ${seed}
 
 # 记录完成状态
 EXIT_CODE=\$?
