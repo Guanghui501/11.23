@@ -349,6 +349,116 @@ class CrossModalAttention(nn.Module):
             return enhanced_graph, enhanced_text
 
 
+class UnidirectionalCrossAttention(nn.Module):
+    """Unidirectional cross-attention: Text queries Structure.
+
+    This is based on the paper's approach where text features act as queries
+    and structure features provide keys and values. This creates a clear
+    "text → structure" information flow.
+
+    Mathematical formulation:
+        Q = Wq @ text_feat
+        K = Wk @ graph_feat
+        V = Wv @ graph_feat
+        attention = softmax(Q @ K^T / sqrt(d))
+        output = Wo @ (attention @ V)
+    """
+
+    def __init__(self, text_dim=64, graph_dim=64, hidden_dim=256,
+                 num_heads=4, dropout=0.1):
+        """Initialize unidirectional cross-attention.
+
+        Args:
+            text_dim: Dimension of text features
+            graph_dim: Dimension of graph features
+            hidden_dim: Hidden dimension for attention computation
+            num_heads: Number of attention heads
+            dropout: Dropout rate
+        """
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.num_heads = num_heads
+        self.head_dim = hidden_dim // num_heads
+        assert hidden_dim % num_heads == 0, "hidden_dim must be divisible by num_heads"
+
+        # Text queries graph (unidirectional)
+        self.query = nn.Linear(text_dim, hidden_dim)      # Text → Query
+        self.key = nn.Linear(graph_dim, hidden_dim)       # Graph → Key
+        self.value = nn.Linear(graph_dim, hidden_dim)     # Graph → Value
+
+        # Output projection
+        self.output = nn.Linear(hidden_dim, text_dim)
+
+        self.dropout = nn.Dropout(dropout)
+        self.layer_norm = nn.LayerNorm(text_dim)
+
+        self.scale = self.head_dim ** -0.5
+
+    def split_heads(self, x, batch_size):
+        """Split the last dimension into (num_heads, head_dim)."""
+        x = x.view(batch_size, -1, self.num_heads, self.head_dim)
+        return x.permute(0, 2, 1, 3)  # (batch, heads, seq, head_dim)
+
+    def forward(self, text_feat, graph_feat, return_attention=False):
+        """Forward pass of unidirectional cross-attention.
+
+        Args:
+            text_feat: Text features [batch_size, text_dim]
+            graph_feat: Graph features [batch_size, graph_dim]
+            return_attention: Whether to return attention weights
+
+        Returns:
+            combined: Fused features [batch_size, text_dim]
+            attention_weights: (optional) Attention weights for interpretability
+        """
+        batch_size = text_feat.size(0)
+
+        # Add sequence dimension if needed
+        if text_feat.dim() == 2:
+            text_feat_seq = text_feat.unsqueeze(1)  # [batch, 1, text_dim]
+        else:
+            text_feat_seq = text_feat
+
+        if graph_feat.dim() == 2:
+            graph_feat_seq = graph_feat.unsqueeze(1)  # [batch, 1, graph_dim]
+        else:
+            graph_feat_seq = graph_feat
+
+        # Generate Q, K, V
+        Q = self.query(text_feat_seq)    # [batch, 1, hidden]
+        K = self.key(graph_feat_seq)      # [batch, 1, hidden]
+        V = self.value(graph_feat_seq)    # [batch, 1, hidden]
+
+        # Multi-head attention
+        Q = self.split_heads(Q, batch_size)  # [batch, heads, 1, head_dim]
+        K = self.split_heads(K, batch_size)  # [batch, heads, 1, head_dim]
+        V = self.split_heads(V, batch_size)  # [batch, heads, 1, head_dim]
+
+        # Compute attention scores
+        attn_scores = torch.matmul(Q, K.transpose(-2, -1)) * self.scale  # [batch, heads, 1, 1]
+        attn_weights = F.softmax(attn_scores, dim=-1)
+
+        attention_weights = attn_weights.detach() if return_attention else None
+
+        attn_weights = self.dropout(attn_weights)
+
+        # Apply attention
+        context = torch.matmul(attn_weights, V)  # [batch, heads, 1, head_dim]
+        context = context.permute(0, 2, 1, 3).contiguous()
+        context = context.view(batch_size, 1, self.hidden_dim)
+
+        # Output projection
+        combined = self.output(context).squeeze(1)  # [batch, text_dim]
+
+        # Residual connection and layer normalization
+        combined = self.layer_norm(text_feat + combined)
+
+        if return_attention:
+            return combined, attention_weights
+        else:
+            return combined
+
+
 class FineGrainedCrossModalAttention(nn.Module):
     """Fine-grained cross-modal attention between atoms and text tokens.
 
@@ -663,6 +773,7 @@ class ALIGNNConfig(BaseSettings):
 
     # Cross-modal attention settings (late fusion)
     use_cross_modal_attention: bool = True
+    cross_modal_attention_type: Literal["bidirectional", "unidirectional"] = "bidirectional"  # bidirectional: both directions, unidirectional: text→graph only
     cross_modal_hidden_dim: int = 256
     cross_modal_num_heads: int = 4
     cross_modal_dropout: float = 0.1
@@ -921,14 +1032,28 @@ class ALIGNN(nn.Module):
 
         # Cross-modal attention module (global level, for backward compatibility)
         self.use_cross_modal_attention = config.use_cross_modal_attention
+        self.cross_modal_attention_type = config.cross_modal_attention_type
         if self.use_cross_modal_attention:
-            self.cross_modal_attention = CrossModalAttention(
-                graph_dim=64,  # After graph_projection
-                text_dim=64,   # After text_projection
-                hidden_dim=config.cross_modal_hidden_dim,
-                num_heads=config.cross_modal_num_heads,
-                dropout=config.cross_modal_dropout
-            )
+            if self.cross_modal_attention_type == "bidirectional":
+                # Bidirectional: graph ↔ text (more powerful but heavier)
+                self.cross_modal_attention = CrossModalAttention(
+                    graph_dim=64,  # After graph_projection
+                    text_dim=64,   # After text_projection
+                    hidden_dim=config.cross_modal_hidden_dim,
+                    num_heads=config.cross_modal_num_heads,
+                    dropout=config.cross_modal_dropout
+                )
+            elif self.cross_modal_attention_type == "unidirectional":
+                # Unidirectional: text → graph (lighter, text-driven)
+                self.cross_modal_attention = UnidirectionalCrossAttention(
+                    text_dim=64,
+                    graph_dim=64,
+                    hidden_dim=config.cross_modal_hidden_dim,
+                    num_heads=config.cross_modal_num_heads,
+                    dropout=config.cross_modal_dropout
+                )
+            else:
+                raise ValueError(f"Unknown cross_modal_attention_type: {self.cross_modal_attention_type}")
 
             # Fusion strategy: average, concat, or gated
             self.fusion_strategy = config.fusion_strategy
@@ -954,10 +1079,29 @@ class ALIGNN(nn.Module):
             else:
                 raise ValueError(f"Unknown fusion_strategy: {self.fusion_strategy}")
         else:
-            # Original simple concatenation
-            self.fusion_strategy = "concat"
-            self.fc1 = nn.Linear(128, 64)
-            self.fc = nn.Linear(64, config.output_features)
+            # No global cross-modal attention, but still allow flexible fusion
+            self.fusion_strategy = config.fusion_strategy
+
+            if self.fusion_strategy == "gated":
+                # Use gated fusion directly on graph and text features
+                self.gated_fusion = GatedFusion(
+                    feature_dim=64,
+                    hidden_dim=config.gated_fusion_hidden_dim,
+                    dropout=config.gated_fusion_dropout,
+                    fusion_type=config.gated_fusion_type
+                )
+                self.fc1 = nn.Linear(64, 64)  # Gated fusion output: 64-dim
+                self.fc = nn.Linear(64, config.output_features)
+            elif self.fusion_strategy == "average":
+                # Simple average fusion
+                self.fc1 = nn.Linear(64, 64)  # Averaged: both are 64-dim
+                self.fc = nn.Linear(64, config.output_features)
+            elif self.fusion_strategy == "concat":
+                # Original simple concatenation
+                self.fc1 = nn.Linear(128, 64)  # Concatenated: 64+64=128
+                self.fc = nn.Linear(64, config.output_features)
+            else:
+                raise ValueError(f"Unknown fusion_strategy: {self.fusion_strategy}")
 
         # Contrastive learning module
         self.use_contrastive_loss = config.use_contrastive_loss
@@ -1136,12 +1280,25 @@ class ALIGNN(nn.Module):
         gate_values = None
         if self.use_cross_modal_attention:
             # Cross-modal attention fusion
-            if return_attention:
-                enhanced_graph, enhanced_text, attention_weights = self.cross_modal_attention(
-                    h, text_emb, return_attention=True
-                )
-            else:
-                enhanced_graph, enhanced_text = self.cross_modal_attention(h, text_emb)
+            if self.cross_modal_attention_type == "bidirectional":
+                # Bidirectional: returns enhanced_graph and enhanced_text
+                if return_attention:
+                    enhanced_graph, enhanced_text, attention_weights = self.cross_modal_attention(
+                        h, text_emb, return_attention=True
+                    )
+                else:
+                    enhanced_graph, enhanced_text = self.cross_modal_attention(h, text_emb)
+            elif self.cross_modal_attention_type == "unidirectional":
+                # Unidirectional: text queries graph, returns fused text feature
+                if return_attention:
+                    combined, attention_weights = self.cross_modal_attention(
+                        text_emb, h, return_attention=True  # Note: text first, graph second
+                    )
+                else:
+                    combined = self.cross_modal_attention(text_emb, h)
+                # For unidirectional, we use the combined output directly
+                enhanced_graph = h  # Keep original graph features
+                enhanced_text = combined  # Use attention-enhanced text features
 
             # Apply fusion strategy
             if self.fusion_strategy == "gated":
@@ -1163,10 +1320,25 @@ class ALIGNN(nn.Module):
                 h = F.relu(self.fc1(h))
                 out = self.fc(h)
         else:
-            # Original simple concatenation
-            h = torch.cat((h, text_emb), 1)
-            h = F.relu(self.fc1(h))
-            out = self.fc(h)
+            # No global cross-modal attention: use direct fusion
+            if self.fusion_strategy == "gated":
+                # Gated fusion: learnable gates control the contribution of each modality
+                if return_attention:
+                    h, gate_values = self.gated_fusion(h, text_emb, return_gate_values=True)
+                else:
+                    h = self.gated_fusion(h, text_emb)
+                h = F.relu(self.fc1(h))
+                out = self.fc(h)
+            elif self.fusion_strategy == "average":
+                # Simple average fusion
+                h = (h + text_emb) / 2  # [batch, 64]
+                h = F.relu(self.fc1(h))
+                out = self.fc(h)
+            elif self.fusion_strategy == "concat":
+                # Original simple concatenation
+                h = torch.cat((h, text_emb), 1)  # [batch, 128]
+                h = F.relu(self.fc1(h))
+                out = self.fc(h)
 
         if self.link:
             out = self.link(out)
