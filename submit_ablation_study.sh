@@ -2,6 +2,7 @@
 #==============================================================================
 # SLURM 消融实验批量提交脚本
 # 用途: 测试Fine-grained Attention和Projection对模型性能的影响
+# 修复: 移除数组参数，直接在heredoc中写完整命令
 #==============================================================================
 
 # 颜色定义
@@ -33,33 +34,6 @@ CONDA_ENV="sganet"
 # 数据集路径
 DATA_ROOT="/public/home/ghzhang/crysmmnet-main-2/dataset"
 
-# 共同训练参数
-COMMON_PARAMS=(
-    --root_dir "$DATA_ROOT"
-    --dataset jarvis
-    --train_ratio 0.8
-    --val_ratio 0.1
-    --test_ratio 0.1
-    --batch_size 64
-    --epochs 100
-    --learning_rate 5e-4
-    --weight_decay 1e-3
-    --warmup_steps 2000
-    --alignn_layers 4
-    --gcn_layers 4
-    --hidden_features 256
-    --graph_dropout 0.15
-    --use_cross_modal False
-    --cross_modal_num_heads 2
-    --middle_fusion_layers 2
-    --middle_fusion_dropout 0.35
-    --fine_grained_hidden_dim 256
-    --fine_grained_num_heads 8
-    --fine_grained_dropout 0.35
-    --early_stopping_patience 150
-    --num_workers 24
-)
-
 #==============================================================================
 # 消融实验配置定义
 #==============================================================================
@@ -68,45 +42,40 @@ COMMON_PARAMS=(
 CONFIG_1_NAME="baseline"
 CONFIG_1_DESC="Baseline: No Fine-grained + With Middle fusion"
 CONFIG_1_SUFFIX="onlymiddle"
-CONFIG_1_PARAMS=(
-    --use_fine_grained_attention False
-    --fine_grained_use_projection False
-    --use_middle_fusion True
-)
+CONFIG_1_FG="False"
+CONFIG_1_PROJ="False"
+CONFIG_1_MIDDLE="True"
 
 # 配置2: Fine-grained + Projection + Middle fusion
 CONFIG_2_NAME="fg_proj_middle"
 CONFIG_2_DESC="Fine-grained + Projection + Middle fusion"
 CONFIG_2_SUFFIX="middle_fg_proj"
-CONFIG_2_PARAMS=(
-    --use_fine_grained_attention True
-    --fine_grained_use_projection True
-    --use_middle_fusion True
-)
+CONFIG_2_FG="True"
+CONFIG_2_PROJ="True"
+CONFIG_2_MIDDLE="True"
 
 # 配置3: Fine-grained + Projection, 无Middle fusion
 CONFIG_3_NAME="fg_proj_nomiddle"
 CONFIG_3_DESC="Fine-grained + Projection, No Middle fusion"
 CONFIG_3_SUFFIX="fg_proj_nomiddle"
-CONFIG_3_PARAMS=(
-    --use_fine_grained_attention True
-    --fine_grained_use_projection True
-    --use_middle_fusion False
-)
+CONFIG_3_FG="True"
+CONFIG_3_PROJ="True"
+CONFIG_3_MIDDLE="False"
 
 #==============================================================================
 # 函数定义
 #==============================================================================
 
 # 提交单个SLURM作业的函数
-# 参数: $1=作业名, $2=输出目录, $3=属性, $4=种子, $5=配置参数数组名, $6=依赖作业ID(可选)
 submit_job() {
     local job_name=$1
     local output_dir=$2
     local property=$3
     local seed=$4
-    local config_params_name=$5
-    local dependency_id=$6
+    local use_fg=$5
+    local use_proj=$6
+    local use_middle=$7
+    local dependency_id=$8
 
     # 创建输出目录
     mkdir -p "$output_dir"
@@ -123,10 +92,7 @@ submit_job() {
         partition_flag="#SBATCH -p ${SLURM_PARTITION}"
     fi
 
-    # 获取配置参数（通过名称引用）
-    local -n config_params=$config_params_name
-
-    # 提交作业
+    # 提交作业（不使用数组，直接写所有参数）
     local job_submit=$(sbatch $dependency_flag <<EOF
 #!/bin/bash
 #SBATCH -J ${job_name}
@@ -166,19 +132,46 @@ echo "GPU:           \${CUDA_VISIBLE_DEVICES}"
 echo "开始时间:      \$(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 echo "训练配置:"
-echo "  属性:        ${property}"
-echo "  随机种子:    ${seed}"
-echo "  输出目录:    ${output_dir}"
+echo "  属性:                    ${property}"
+echo "  随机种子:                ${seed}"
+echo "  Fine-grained Attention:  ${use_fg}"
+echo "  Fine-grained Projection: ${use_proj}"
+echo "  Middle Fusion:           ${use_middle}"
+echo "  输出目录:                ${output_dir}"
 echo "=========================================="
 echo ""
 
-# 执行训练
+# 执行训练（完整参数列表，不使用数组）
 python train_with_cross_modal_attention.py \\
-    ${COMMON_PARAMS[@]} \\
-    --property "${property}" \\
-    --random_seed "${seed}" \\
-    --output_dir "${output_dir}" \\
-    ${config_params[@]}
+    --root_dir ${DATA_ROOT} \\
+    --dataset jarvis \\
+    --property ${property} \\
+    --train_ratio 0.8 \\
+    --val_ratio 0.1 \\
+    --test_ratio 0.1 \\
+    --batch_size 64 \\
+    --epochs 100 \\
+    --learning_rate 5e-4 \\
+    --weight_decay 1e-3 \\
+    --warmup_steps 2000 \\
+    --alignn_layers 4 \\
+    --gcn_layers 4 \\
+    --hidden_features 256 \\
+    --graph_dropout 0.15 \\
+    --use_cross_modal False \\
+    --cross_modal_num_heads 2 \\
+    --use_middle_fusion ${use_middle} \\
+    --middle_fusion_layers 2 \\
+    --use_fine_grained_attention ${use_fg} \\
+    --middle_fusion_dropout 0.35 \\
+    --fine_grained_hidden_dim 256 \\
+    --fine_grained_num_heads 8 \\
+    --fine_grained_dropout 0.35 \\
+    --fine_grained_use_projection ${use_proj} \\
+    --early_stopping_patience 150 \\
+    --output_dir ${output_dir} \\
+    --num_workers 24 \\
+    --random_seed ${seed}
 
 # 记录完成状态
 EXIT_CODE=\$?
@@ -266,7 +259,8 @@ for PROPERTY in "${PROPERTIES[@]}"; do
 
         print_config_info "1" "$CONFIG_1_NAME" "$CONFIG_1_DESC" "$PROPERTY" "$SEED" "$OUTPUT_DIR" "$PREV_JOB_ID"
 
-        JOB_ID=$(submit_job "$JOB_NAME" "$OUTPUT_DIR" "$PROPERTY" "$SEED" "CONFIG_1_PARAMS" "$PREV_JOB_ID")
+        JOB_ID=$(submit_job "$JOB_NAME" "$OUTPUT_DIR" "$PROPERTY" "$SEED" \
+                           "$CONFIG_1_FG" "$CONFIG_1_PROJ" "$CONFIG_1_MIDDLE" "$PREV_JOB_ID")
 
         if [ -n "$JOB_ID" ]; then
             echo -e "${GREEN}✓ 作业已提交: ID = ${JOB_ID}${NC}"
@@ -285,7 +279,8 @@ for PROPERTY in "${PROPERTIES[@]}"; do
 
         print_config_info "2" "$CONFIG_2_NAME" "$CONFIG_2_DESC" "$PROPERTY" "$SEED" "$OUTPUT_DIR" "$PREV_JOB_ID"
 
-        JOB_ID=$(submit_job "$JOB_NAME" "$OUTPUT_DIR" "$PROPERTY" "$SEED" "CONFIG_2_PARAMS" "$PREV_JOB_ID")
+        JOB_ID=$(submit_job "$JOB_NAME" "$OUTPUT_DIR" "$PROPERTY" "$SEED" \
+                           "$CONFIG_2_FG" "$CONFIG_2_PROJ" "$CONFIG_2_MIDDLE" "$PREV_JOB_ID")
 
         if [ -n "$JOB_ID" ]; then
             echo -e "${GREEN}✓ 作业已提交: ID = ${JOB_ID}${NC}"
@@ -304,7 +299,8 @@ for PROPERTY in "${PROPERTIES[@]}"; do
 
         print_config_info "3" "$CONFIG_3_NAME" "$CONFIG_3_DESC" "$PROPERTY" "$SEED" "$OUTPUT_DIR" "$PREV_JOB_ID"
 
-        JOB_ID=$(submit_job "$JOB_NAME" "$OUTPUT_DIR" "$PROPERTY" "$SEED" "CONFIG_3_PARAMS" "$PREV_JOB_ID")
+        JOB_ID=$(submit_job "$JOB_NAME" "$OUTPUT_DIR" "$PROPERTY" "$SEED" \
+                           "$CONFIG_3_FG" "$CONFIG_3_PROJ" "$CONFIG_3_MIDDLE" "$PREV_JOB_ID")
 
         if [ -n "$JOB_ID" ]; then
             echo -e "${GREEN}✓ 作业已提交: ID = ${JOB_ID}${NC}"
@@ -344,6 +340,6 @@ echo "  取消作业链:            scancel ${ALL_JOB_IDS[@]}"
 echo ""
 echo -e "${YELLOW}监控命令:${NC}"
 echo "  实时监控:              watch -n 10 'squeue -u \$USER'"
-echo "  查看第一个作业日志:    tail -f output_*baseline*/train_*.out"
+echo "  查看第一个作业日志:    tail -f ${OUTPUT_DIR}/train_*.out"
 echo ""
 echo -e "${GREEN}========================================${NC}"
