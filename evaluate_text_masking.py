@@ -458,6 +458,8 @@ def main():
     # 模型和数据
     parser.add_argument('--checkpoint', type=str, required=True,
                        help='模型checkpoint路径')
+    parser.add_argument('--config_file', type=str, default=None,
+                       help='模型配置文件路径 (JSON格式，当checkpoint缺少model_config时使用)')
     parser.add_argument('--preprocessed_dir', type=str, default='./preprocessed_data',
                        help='预处理数据目录')
     parser.add_argument('--dataset', type=str, required=True,
@@ -499,12 +501,59 @@ def main():
     checkpoint = torch.load(args.checkpoint, map_location=device)
 
     # 获取模型配置
+    model_config = None
+
+    # 策略1: 从checkpoint的model_config字段加载
     if 'model_config' in checkpoint:
+        print("✓ 从checkpoint加载model_config")
         model_config = checkpoint['model_config']
         if isinstance(model_config, dict):
             model_config = ALIGNNConfig(**model_config)
+
+    # 策略2: 从checkpoint的config字段加载（某些checkpoint使用这个名称）
+    elif 'config' in checkpoint:
+        print("✓ 从checkpoint加载config")
+        config = checkpoint['config']
+        if isinstance(config, dict):
+            model_config = ALIGNNConfig(**config)
+        elif hasattr(config, '__dict__'):
+            model_config = ALIGNNConfig(**vars(config))
+
+    # 策略3: 从外部配置文件加载
+    elif args.config_file:
+        print(f"✓ 从外部配置文件加载: {args.config_file}")
+        import json
+        with open(args.config_file, 'r') as f:
+            config_dict = json.load(f)
+        model_config = ALIGNNConfig(**config_dict)
+
+    # 策略4: 都失败了，提供详细的错误信息
     else:
-        raise ValueError("Checkpoint中没有找到model_config")
+        print("\n" + "="*80)
+        print("❌ 错误: 无法加载模型配置")
+        print("="*80)
+        print("\nCheckpoint中没有找到model_config或config字段。")
+        print("\n可用的checkpoint字段:")
+        for key in checkpoint.keys():
+            print(f"  - {key}")
+        print("\n" + "="*80)
+        print("解决方案:")
+        print("="*80)
+        print("\n1. 使用inspect_checkpoint.py检查checkpoint内容:")
+        print(f"   python inspect_checkpoint.py {args.checkpoint}")
+        print("\n2. 使用create_config_from_checkpoint.py创建配置文件:")
+        print(f"   python create_config_from_checkpoint.py \\")
+        print(f"       --checkpoint {args.checkpoint} \\")
+        print(f"       --output model_config.json")
+        print("\n3. 然后使用配置文件重新运行评估:")
+        print(f"   python evaluate_text_masking.py \\")
+        print(f"       --checkpoint {args.checkpoint} \\")
+        print(f"       --config_file model_config.json \\")
+        print(f"       --preprocessed_dir {args.preprocessed_dir} \\")
+        print(f"       --dataset {args.dataset} \\")
+        print(f"       --property {args.property}")
+        print()
+        raise ValueError("无法加载模型配置，请参考上述解决方案")
 
     # 创建模型
     model = ALIGNN(model_config)
