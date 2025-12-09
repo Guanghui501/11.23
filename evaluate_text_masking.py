@@ -391,12 +391,12 @@ def save_results(results: Dict, output_dir: str, property_name: str, strategy: s
     # 保存详细结果
     results_file = os.path.join(output_dir, f'text_masking_results_{strategy}.json')
 
-    # 移除numpy数组（不能直接JSON序列化）
+    # 转换为Python原生类型（JSON可序列化）
     results_to_save = {
-        'masking_ratios': results['masking_ratios'],
-        'mae': results['mae'],
-        'rmse': results['rmse'],
-        'r2': results['r2'],
+        'masking_ratios': [float(x) for x in results['masking_ratios']],
+        'mae': [float(x) for x in results['mae']],
+        'rmse': [float(x) for x in results['rmse']],
+        'r2': [float(x) for x in results['r2']],
         'property': property_name,
         'strategy': strategy
     }
