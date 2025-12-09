@@ -462,6 +462,8 @@ def main():
                        help='模型配置文件路径 (JSON格式，当checkpoint缺少model_config时使用)')
     parser.add_argument('--preprocessed_dir', type=str, default='./preprocessed_data',
                        help='预处理数据目录')
+    parser.add_argument('--test_data', type=str, default=None,
+                       help='指定测试集pickle文件路径（可选，用于使用特定的测试集）')
     parser.add_argument('--dataset', type=str, required=True,
                        choices=['jarvis', 'mp'],
                        help='数据集名称')
@@ -609,11 +611,20 @@ def main():
 
     # 加载测试数据
     print("加载测试数据...")
-    _, _, test_data = load_preprocessed_dataset(
-        args.preprocessed_dir,
-        args.dataset,
-        args.property
-    )
+    if args.test_data:
+        # 使用指定的测试集文件
+        print(f"  从指定文件加载: {args.test_data}")
+        with open(args.test_data, 'rb') as f:
+            test_data = pickle.load(f)
+        print(f"✓ 加载测试集: {len(test_data)} 个样本")
+    else:
+        # 使用预处理数据中的默认测试集
+        print(f"  从预处理数据加载: {args.preprocessed_dir}/{args.dataset}/{args.property}/test.pkl")
+        _, _, test_data = load_preprocessed_dataset(
+            args.preprocessed_dir,
+            args.dataset,
+            args.property
+        )
 
     # 创建数据加载器 - 使用预处理数据的简化版本
     import dgl
