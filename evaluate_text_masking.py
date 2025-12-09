@@ -615,26 +615,56 @@ def main():
         args.property
     )
 
-    # 创建数据加载器 (只需要test loader)
-    from data import get_train_val_loaders
-    _, _, test_loader, prepare_batch = get_train_val_loaders(
-        dataset_array=([test_data[0]], [test_data[0]], test_data),  # 只使用test数据
-        target=args.property,
-        batch_size=args.batch_size,
-        atom_features='cgcnn',
-        neighbor_strategy='k-nearest',
-        id_tag='jid',
-        pin_memory=True,
-        workers=0,
-        save_dataloader=False,
-        use_canonize=True,
-        filename='test',
-        cutoff=8.0,
-        max_neighbors=12,
-        output_dir=args.output_dir
-    )
+    # 创建数据加载器 - 使用预处理数据的简化版本
+    import dgl
+    from torch.utils.data import Dataset, DataLoader
 
-    print(f"✓ 测试集大小: {len(test_loader.dataset)}\n")
+    class PreprocessedDataset(Dataset):
+        """预处理数据的Dataset"""
+        def __init__(self, data):
+            self.data = data
+
+        def __len__(self):
+            return len(self.data)
+
+        def __getitem__(self, idx):
+            return self.data[idx]
+
+    def collate_preprocessed(samples):
+        """Collate function for preprocessed data"""
+        # 提取batch数据
+        graphs = [s['graph'][0] for s in samples]  # graph是元组格式
+        line_graphs = [s['line_graph'] for s in samples]
+        texts = [s['text'] for s in samples]
+        targets = torch.tensor([s['target'] for s in samples], dtype=torch.float32)
+
+        # 批处理图
+        batched_graph = dgl.batch(graphs)
+        batched_line_graph = dgl.batch(line_graphs)
+
+        return batched_graph, batched_line_graph, targets, texts
+
+    def prepare_batch_preprocessed(batch, device):
+        """Prepare batch for model input"""
+        g, lg, target, text_list = batch
+        g = g.to(device)
+        lg = lg.to(device)
+        target = target.to(device)
+        return g, lg, target, text_list
+
+    # 创建dataset和dataloader
+    test_dataset = PreprocessedDataset(test_data)
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=collate_preprocessed,
+        num_workers=0,
+        pin_memory=True
+    )
+    prepare_batch = prepare_batch_preprocessed
+
+    print(f"✓ 测试集大小: {len(test_dataset)}\n")
 
     # 评估不同遮挡率
     print("="*80)
