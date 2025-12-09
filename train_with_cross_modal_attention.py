@@ -175,6 +175,21 @@ def get_parser():
     parser.add_argument('--contrastive_temperature', type=float, default=0.1,
                         help='对比学习的温度参数')
 
+    # 融合策略参数 ⭐ NEW! (方案1和方案2)
+    parser.add_argument('--cross_modal_attention_type', type=str, default='bidirectional',
+                        choices=['bidirectional', 'unidirectional'],
+                        help='跨模态注意力类型: bidirectional (双向), unidirectional (单向，文本→图)')
+    parser.add_argument('--fusion_strategy', type=str, default='gated',
+                        choices=['average', 'concat', 'gated'],
+                        help='融合策略: average (平均), concat (拼接), gated (门控)')
+    parser.add_argument('--gated_fusion_type', type=str, default='dual_gate',
+                        choices=['single_gate', 'dual_gate', 'attention'],
+                        help='门控融合类型: single_gate, dual_gate (推荐), attention')
+    parser.add_argument('--gated_fusion_hidden_dim', type=int, default=128,
+                        help='门控融合隐藏层维度')
+    parser.add_argument('--gated_fusion_dropout', type=float, default=0.1,
+                        help='门控融合dropout率')
+
     # 其他参数
     parser.add_argument('--output_dir', type=str, default='./output/',
                         help='输出目录')
