@@ -557,10 +557,50 @@ def main():
 
     # 创建模型
     model = ALIGNN(model_config)
-    model.load_state_dict(checkpoint['model'])
+
+    # 加载模型权重（使用strict=False以处理可能的键不匹配）
+    try:
+        # 首先尝试严格加载
+        model.load_state_dict(checkpoint['model'], strict=True)
+        print("✓ 模型加载成功（严格匹配）\n")
+    except RuntimeError as e:
+        # 如果严格加载失败，使用宽松加载
+        error_msg = str(e)
+        print(f"⚠ 严格加载失败，尝试宽松加载...")
+        print(f"   原因: {error_msg}\n")
+
+        # 使用strict=False加载
+        missing_keys, unexpected_keys = model.load_state_dict(checkpoint['model'], strict=False)
+
+        # 显示详细信息
+        if unexpected_keys:
+            print(f"⚠ Checkpoint中有 {len(unexpected_keys)} 个额外的键（将被忽略）:")
+            for key in unexpected_keys[:5]:  # 只显示前5个
+                print(f"   - {key}")
+            if len(unexpected_keys) > 5:
+                print(f"   ... 还有 {len(unexpected_keys) - 5} 个")
+            print()
+
+        if missing_keys:
+            print(f"⚠ 模型中有 {len(missing_keys)} 个键缺失（将使用随机初始化）:")
+            for key in missing_keys[:5]:  # 只显示前5个
+                print(f"   - {key}")
+            if len(missing_keys) > 5:
+                print(f"   ... 还有 {len(missing_keys) - 5} 个")
+            print()
+
+            # 如果缺失的键太多，发出警告
+            if len(missing_keys) > 10:
+                print(f"❌ 警告: 缺失的键过多 ({len(missing_keys)} 个)!")
+                print(f"   这可能导致评估结果不准确。")
+                print(f"   请检查模型代码是否与训练时一致。")
+                raise RuntimeError("模型加载失败：缺失键过多")
+
+        print("✓ 模型加载成功（宽松匹配）")
+        print("  注意: 部分参数不匹配，但已成功加载大部分权重\n")
+
     model = model.to(device)
     model.eval()
-    print("✓ 模型加载成功\n")
 
     # 加载tokenizer
     print("加载tokenizer...")
