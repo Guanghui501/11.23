@@ -633,7 +633,15 @@ def main():
     def collate_preprocessed(samples):
         """Collate function for preprocessed data"""
         # 提取batch数据
-        graphs = [s['graph'][0] for s in samples]  # graph是元组格式
+        graphs = []
+        for s in samples:
+            g = s['graph']
+            # 处理两种可能的格式：元组或直接是图对象
+            if isinstance(g, tuple):
+                graphs.append(g[0])
+            else:
+                graphs.append(g)
+
         line_graphs = [s['line_graph'] for s in samples]
         texts = [s['text'] for s in samples]
         targets = torch.tensor([s['target'] for s in samples], dtype=torch.float32)
