@@ -1,11 +1,36 @@
-# ⚡ 快速修复指南 - Checkpoint配置问题
+# ⚡ 快速修复指南 - 常见错误
 
-## 🔴 错误信息
+## 🔴 错误1: Checkpoint配置问题
 
 ```
 ValueError: Checkpoint中没有找到model_config
 ✗ random_token 评估失败
 ```
+
+**状态**: ✅ 已修复（通过配置文件或自动推断）
+
+---
+
+## 🔴 错误2: 模型加载键不匹配
+
+```
+RuntimeError: Error(s) in loading state_dict for ALIGNN:
+	Unexpected key(s) in state_dict: "fine_grained_attention.atom_position_embedding.weight".
+```
+
+**状态**: ✅ 已修复（自动宽松加载）
+
+---
+
+## 🔴 错误3: 数据加载类型错误
+
+```
+TypeError: list indices must be integers or slices, not str
+```
+
+**状态**: ✅ 已修复（自定义数据加载器）
+
+---
 
 ## ✅ 快速解决方案（3分钟）
 
