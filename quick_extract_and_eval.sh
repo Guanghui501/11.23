@@ -9,6 +9,28 @@ echo "测试集提取与评估 - 一键运行"
 echo "========================================"
 echo ""
 
+# ==================== 修复 GLIBCXX 问题 ====================
+echo "检查并修复环境..."
+
+# 获取 conda 环境路径
+if [ -z "$CONDA_PREFIX" ]; then
+    if [ -d "$HOME/.conda/envs/MatMMFuse" ]; then
+        CONDA_PREFIX="$HOME/.conda/envs/MatMMFuse"
+    elif [ -d "/public/home/ghzhang/.conda/envs/MatMMFuse" ]; then
+        CONDA_PREFIX="/public/home/ghzhang/.conda/envs/MatMMFuse"
+    fi
+fi
+
+# 设置库路径以避免 GLIBCXX 问题
+if [ -n "$CONDA_PREFIX" ] && [ -d "$CONDA_PREFIX/lib" ]; then
+    export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+    echo "✓ 已设置 LD_LIBRARY_PATH"
+else
+    echo "⚠ 警告: 未找到 conda 环境，可能遇到库版本问题"
+fi
+
+echo ""
+
 # ==================== 配置参数 ====================
 PREDICTIONS_CSV="/public/home/ghzhang/crysmmnet-main-2/src/coGN/band-shuangyanma/111my/output_100epochs_42_bs128_sw_ju_onlymiddle/mbj_bandgap/predictions_best_test_model_test.csv"
 CHECKPOINT="/public/home/ghzhang/crysmmnet-main-2/src/coGN/band-shuangyanma/111my/SGA-V2.0/mbj/middle+fine/output_100epochs_42_bs64_sw_ju_middle_fg_proj_mbj_bandgap_quantext/mbj_bandgap/best_test_model.pt"
