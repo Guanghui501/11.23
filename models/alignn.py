@@ -752,6 +752,238 @@ class GatedFusion(nn.Module):
             return fused
 
 
+class TextQualityGate(nn.Module):
+    """Text quality detection gate.
+
+    This module evaluates the quality/completeness of text features to determine
+    how much they should contribute to the final fusion. Low-quality text
+    (e.g., all [MASK] tokens or empty strings) will get low quality scores.
+
+    Key insight from experiments:
+    - 100% masking produces "[MASK] [MASK] ..." which has learned embeddings
+    - 100% deletion produces "" which also has special token embeddings
+    - Both produce MAE degradation when forcibly mixed with graph features
+    - Solution: Detect text quality and downweight poor-quality text
+    """
+
+    def __init__(self, text_dim=64, hidden_dim=128, dropout=0.1):
+        """Initialize text quality gate.
+
+        Args:
+            text_dim: Dimension of text features
+            hidden_dim: Hidden dimension for quality computation
+            dropout: Dropout rate
+        """
+        super().__init__()
+
+        # Multi-layer quality detector
+        self.quality_network = nn.Sequential(
+            nn.Linear(text_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim // 2, 1),
+            nn.Sigmoid()  # Output: quality score in [0, 1]
+        )
+
+        # Optional: norm detector (low norm → low quality)
+        self.use_norm_detection = True
+
+    def forward(self, text_feat):
+        """Detect text quality.
+
+        Args:
+            text_feat: Text features [batch_size, text_dim]
+
+        Returns:
+            quality_score: Quality scores [batch_size, 1] in range [0, 1]
+                - 1.0: high quality text (clean, informative)
+                - 0.0: low quality text (masked, empty, or corrupted)
+        """
+        # Network-based quality detection
+        quality_score = self.quality_network(text_feat)  # [batch, 1]
+
+        # Optional: combine with norm-based detection
+        if self.use_norm_detection:
+            # Compute feature norm as additional quality indicator
+            # Low norm suggests poor/missing text information
+            feat_norm = torch.norm(text_feat, dim=-1, keepdim=True)  # [batch, 1]
+            # Normalize to [0, 1] range using sigmoid
+            norm_quality = torch.sigmoid(feat_norm - 3.0)  # Threshold around 3.0
+
+            # Combine network and norm quality
+            quality_score = quality_score * norm_quality
+
+        return quality_score
+
+
+class AdaptiveFusionGate(nn.Module):
+    """Adaptive fusion gate for quality-aware multimodal fusion.
+
+    This module computes fusion weights based on both graph and text features,
+    allowing the model to learn when to rely more on graph vs. text.
+
+    When combined with TextQualityGate:
+    - Clean text: high quality → high fusion weight → utilize text
+    - Poor text: low quality → low fusion weight → rely on graph
+    """
+
+    def __init__(self, feature_dim=64, hidden_dim=128, dropout=0.1):
+        """Initialize adaptive fusion gate.
+
+        Args:
+            feature_dim: Dimension of input features
+            hidden_dim: Hidden dimension for fusion weight computation
+            dropout: Dropout rate
+        """
+        super().__init__()
+
+        # Fusion weight network
+        self.fusion_network = nn.Sequential(
+            nn.Linear(feature_dim * 2, hidden_dim),  # Concat graph and text
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim // 2, 1),
+            nn.Sigmoid()  # Output: fusion weight in [0, 1]
+        )
+
+    def forward(self, graph_feat, text_feat):
+        """Compute adaptive fusion weight.
+
+        Args:
+            graph_feat: Graph features [batch_size, feature_dim]
+            text_feat: Text features [batch_size, feature_dim]
+
+        Returns:
+            fusion_weight: Fusion weights [batch_size, 1] in range [0, 1]
+                - Higher weight: more text contribution
+                - Lower weight: more graph contribution
+        """
+        # Concatenate features
+        combined = torch.cat([graph_feat, text_feat], dim=-1)  # [batch, feature_dim*2]
+
+        # Compute fusion weight
+        fusion_weight = self.fusion_network(combined)  # [batch, 1]
+
+        return fusion_weight
+
+
+class GatedCrossAttention(nn.Module):
+    """Gated Cross-Attention with quality-aware adaptive fusion.
+
+    This module addresses the fundamental limitation discovered in experiments:
+    - Fixed Middle Fusion: Best peak (MAE 0.2554) but worst robustness (MAE 0.7470 at 100% masking)
+    - No Middle Fusion: Good peak (MAE 0.2694) and good robustness (MAE 0.5358 at 100% masking)
+
+    Solution: Quality-aware adaptive fusion
+    - Automatically detects text quality
+    - Downweights poor-quality text to protect graph features
+    - Maintains peak performance with clean text
+    - Achieves robustness with degraded text
+
+    Expected results:
+    - 0% masking: MAE ≈ 0.2550 (match fixed fusion peak)
+    - 100% masking: MAE ≈ 0.5358 (match no-fusion robustness)
+    """
+
+    def __init__(self, graph_dim=64, text_dim=64, hidden_dim=256,
+                 num_heads=4, dropout=0.1, quality_hidden_dim=128):
+        """Initialize gated cross-attention.
+
+        Args:
+            graph_dim: Dimension of graph features
+            text_dim: Dimension of text features
+            hidden_dim: Hidden dimension for attention
+            num_heads: Number of attention heads
+            dropout: Dropout rate
+            quality_hidden_dim: Hidden dimension for quality gates
+        """
+        super().__init__()
+
+        # Text quality detector
+        self.text_quality_gate = TextQualityGate(
+            text_dim=text_dim,
+            hidden_dim=quality_hidden_dim,
+            dropout=dropout
+        )
+
+        # Adaptive fusion weight generator
+        self.adaptive_fusion_gate = AdaptiveFusionGate(
+            feature_dim=text_dim,  # Assume graph and text have same dim after projection
+            hidden_dim=quality_hidden_dim,
+            dropout=dropout
+        )
+
+        # Cross-attention mechanism (bidirectional)
+        self.cross_attention = CrossModalAttention(
+            graph_dim=graph_dim,
+            text_dim=text_dim,
+            hidden_dim=hidden_dim,
+            num_heads=num_heads,
+            dropout=dropout
+        )
+
+        self.layer_norm = nn.LayerNorm(graph_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, graph_feat, text_feat, return_diagnostics=False):
+        """Forward pass with quality-aware fusion.
+
+        Args:
+            graph_feat: Graph features [batch_size, graph_dim]
+            text_feat: Text features [batch_size, text_dim]
+            return_diagnostics: Whether to return diagnostic information
+
+        Returns:
+            If return_diagnostics=False:
+                fused: Fused features [batch_size, graph_dim]
+            If return_diagnostics=True:
+                fused: Fused features
+                diagnostics: Dict with quality_score, fusion_weight, effective_weight
+        """
+        # Step 1: Detect text quality
+        quality_score = self.text_quality_gate(text_feat)  # [batch, 1]
+
+        # Step 2: Compute base fusion weight
+        fusion_weight = self.adaptive_fusion_gate(graph_feat, text_feat)  # [batch, 1]
+
+        # Step 3: Quality-gated effective weight
+        # Key innovation: effective_weight = quality * fusion_weight
+        # - Clean text (quality ≈ 1.0): effective_weight ≈ fusion_weight
+        # - Poor text (quality ≈ 0.0): effective_weight ≈ 0 (ignore text)
+        effective_weight = quality_score * fusion_weight  # [batch, 1]
+
+        # Step 4: Cross-attention enhancement
+        enhanced_graph, enhanced_text = self.cross_attention(graph_feat, text_feat)
+
+        # Step 5: Adaptive fusion with quality gating
+        # When effective_weight is low, rely more on graph
+        # When effective_weight is high, use attention-enhanced features
+        fused = (1 - effective_weight) * enhanced_graph + effective_weight * enhanced_text
+
+        # Layer norm and residual
+        fused = self.layer_norm(fused + graph_feat)
+        fused = self.dropout(fused)
+
+        if return_diagnostics:
+            diagnostics = {
+                'quality_score': quality_score.detach(),  # [batch, 1]
+                'fusion_weight': fusion_weight.detach(),  # [batch, 1]
+                'effective_weight': effective_weight.detach(),  # [batch, 1]
+                'quality_mean': quality_score.mean().item(),
+                'fusion_mean': fusion_weight.mean().item(),
+                'effective_mean': effective_weight.mean().item(),
+            }
+            return fused, diagnostics
+        else:
+            return fused
+
+
 class ALIGNNConfig(BaseSettings):
     """Hyperparameter schema for jarvisdgl.models.alignn."""
 
@@ -804,6 +1036,13 @@ class ALIGNNConfig(BaseSettings):
     use_contrastive_loss: bool = False
     contrastive_loss_weight: float = 0.1
     contrastive_temperature: float = 0.1
+
+    # Gated Cross-Attention settings (NEW!)
+    use_gated_cross_attention: bool = False
+    gated_attention_hidden_dim: int = 256
+    gated_attention_num_heads: int = 4
+    gated_attention_dropout: float = 0.1
+    gated_quality_hidden_dim: int = 128
 
     # if link == log, apply `exp` to final outputs
     # to constrain predictions to be positive
@@ -1029,10 +1268,25 @@ class ALIGNN(nn.Module):
                 use_projection=config.fine_grained_use_projection
             )
 
+        # Gated Cross-Attention module (NEW! - solves fixed fusion limitation)
+        self.use_gated_cross_attention = config.use_gated_cross_attention
+        if self.use_gated_cross_attention:
+            self.gated_cross_attention = GatedCrossAttention(
+                graph_dim=64,  # After graph_projection
+                text_dim=64,   # After text_projection
+                hidden_dim=config.gated_attention_hidden_dim,
+                num_heads=config.gated_attention_num_heads,
+                dropout=config.gated_attention_dropout,
+                quality_hidden_dim=config.gated_quality_hidden_dim
+            )
+            # Use simple output layers
+            self.fc1 = nn.Linear(64, 64)
+            self.fc = nn.Linear(64, config.output_features)
+
         # Cross-modal attention module (global level, for backward compatibility)
         self.use_cross_modal_attention = config.use_cross_modal_attention
         self.cross_modal_attention_type = config.cross_modal_attention_type
-        if self.use_cross_modal_attention:
+        if self.use_cross_modal_attention and not self.use_gated_cross_attention:
             if self.cross_modal_attention_type == "bidirectional":
                 # Bidirectional: graph ↔ text (more powerful but heavier)
                 self.cross_modal_attention = CrossModalAttention(
@@ -1277,7 +1531,24 @@ class ALIGNN(nn.Module):
         # Multi-Modal Representation Fusion
         attention_weights = None
         gate_values = None
-        if self.use_cross_modal_attention:
+        quality_diagnostics = None
+
+        # Option 1: Gated Cross-Attention (NEW! - quality-aware adaptive fusion)
+        if self.use_gated_cross_attention:
+            # Quality-aware fusion
+            if return_attention:
+                h, quality_diagnostics = self.gated_cross_attention(
+                    h, text_emb, return_diagnostics=True
+                )
+            else:
+                h = self.gated_cross_attention(h, text_emb)
+
+            # Simple prediction head
+            h = F.relu(self.fc1(h))
+            out = self.fc(h)
+
+        # Option 2: Original cross-modal attention (backward compatibility)
+        elif self.use_cross_modal_attention:
             # Cross-modal attention fusion
             if self.cross_modal_attention_type == "bidirectional":
                 # Bidirectional: returns enhanced_graph and enhanced_text
@@ -1382,6 +1653,9 @@ class ALIGNN(nn.Module):
                 # Gated fusion weights (new!)
                 if gate_values is not None:
                     output_dict['gate_values'] = gate_values
+                # Quality diagnostics from Gated Cross-Attention (NEW!)
+                if quality_diagnostics is not None:
+                    output_dict['quality_diagnostics'] = quality_diagnostics
 
             # Compute contrastive loss if enabled
             if self.use_contrastive_loss and self.training:
