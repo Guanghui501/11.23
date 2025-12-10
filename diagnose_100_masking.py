@@ -249,14 +249,18 @@ Key findings:
    → Different embeddings → Different model predictions
 
 4. Why models differ at 100% masking:
-   → Different architectures (Middle Fusion vs. no Middle Fusion)
-   → Different ways of using [MASK] embeddings
-   → Different training distributions
+   → SAGE-Net (WITH Middle Fusion): MAE = 0.7470 (worse!)
+   → model1+2 (NO Middle Fusion):   MAE = 0.5358 (better!)
 
-5. This is expected behavior!
-   → model1+2 is more robust (MAE = 0.5358)
-   → SAGE-Net degrades more (MAE = 0.7470)
-   → Middle Fusion provides better robustness
+   The problem: Fixed Middle Fusion forcibly mixes bad [MASK] embeddings
+                with good graph features → pollutes representations
+
+5. Critical insight:
+   → Fixed Middle Fusion: Best peak (0.2554), worst robustness (0.7470)
+   → No Middle Fusion:    Good peak (0.2694), best robustness (0.5358)
+   → Need Gated Cross-Attention to get both!
+
+This finding perfectly justifies the Gated Cross-Attention approach!
 
 For detailed explanation, see: WHY_100_MASKING_DIFFERS.md
     """)
