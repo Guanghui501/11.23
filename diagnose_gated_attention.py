@@ -31,7 +31,6 @@ def diagnose_gating_behavior(model, data_loader, device='cpu', max_batches=50):
     quality_scores = []
     fusion_weights = []
     effective_weights = []
-    text_norms = []
     predictions = []
     targets = []
 
@@ -254,9 +253,6 @@ def main():
                         help='数据集名称')
     parser.add_argument('--property', type=str, default='mbj_bandgap',
                         help='目标属性')
-    parser.add_argument('--root_dir', type=str,
-                        default='/public/home/ghzhang/crysmmnet-main/dataset',
-                        help='数据集根目录')
     parser.add_argument('--batch_size', type=int, default=32,
                         help='批次大小')
     parser.add_argument('--max_batches', type=int, default=50,
@@ -324,14 +320,15 @@ def main():
             use_canonize=True,
             cutoff=8.0,
             max_neighbors=12,
-            output_dir=args.output_dir,
-            root_dir=args.root_dir
+            output_dir=args.output_dir
         )
 
         print(f"✅ 数据集加载完成: {len(test_loader.dataset)} 测试样本")
 
     except Exception as e:
         print(f"❌ 数据加载失败: {e}")
+        import traceback
+        traceback.print_exc()
         return
 
     # Diagnose
