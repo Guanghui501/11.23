@@ -1,0 +1,152 @@
+<svg width="1000" height="800" xmlns="http://www.w3.org/2000/svg">
+  <!-- Define styles -->
+  <defs>
+    <style>
+      .box { fill: #e3f2fd; stroke: #1976d2; stroke-width: 2; }
+      .highlight-box { fill: #fff9c4; stroke: #f57c00; stroke-width: 2.5; }
+      .text-box { fill: #ffebee; stroke: #c62828; stroke-width: 2; }
+      .graph-box { fill: #e8f5e9; stroke: #388e3c; stroke-width: 2; }
+      .operation { fill: #f3e5f5; stroke: #7b1fa2; stroke-width: 2; }
+      .title { font-family: Arial, sans-serif; font-size: 18px; font-weight: bold; fill: #333; }
+      .label { font-family: Arial, sans-serif; font-size: 14px; fill: #333; }
+      .math { font-family: 'Times New Roman', serif; font-size: 14px; font-style: italic; fill: #1a237e; }
+      .small-text { font-family: Arial, sans-serif; font-size: 12px; fill: #666; }
+      .step-label { font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; fill: #d32f2f; }
+      .arrow { fill: none; stroke: #424242; stroke-width: 2; marker-end: url(#arrowhead); }
+      .thick-arrow { fill: none; stroke: #ff6f00; stroke-width: 3; marker-end: url(#arrowhead-thick); }
+    </style>
+
+    <!-- Arrow markers -->
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#424242" />
+    </marker>
+    <marker id="arrowhead-thick" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#ff6f00" />
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="500" y="30" class="title" text-anchor="middle">Broadcast Gated Fusion Mechanism (Middle Fusion)</text>
+
+  <!-- ========== INPUT LAYER ========== -->
+  <text x="50" y="70" class="step-label">INPUT:</text>
+
+  <!-- Node Features Input -->
+  <rect x="50" y="80" width="200" height="80" class="graph-box" rx="5"/>
+  <text x="150" y="105" class="label" text-anchor="middle" font-weight="bold">Node Features</text>
+  <text x="150" y="125" class="math" text-anchor="middle">H_node^(L) ∈ ℝ^(N×256)</text>
+  <text x="150" y="145" class="small-text" text-anchor="middle">N atoms, 256-dim each</text>
+
+  <!-- Text Semantic Input -->
+  <rect x="350" y="80" width="200" height="80" class="text-box" rx="5"/>
+  <text x="450" y="105" class="label" text-anchor="middle" font-weight="bold">Text Semantic</text>
+  <text x="450" y="125" class="math" text-anchor="middle">T_cls ∈ ℝ^768</text>
+  <text x="450" y="145" class="small-text" text-anchor="middle">Global text embedding</text>
+
+  <!-- ========== STEP 1: TEXT PROJECTION ========== -->
+  <text x="50" y="210" class="step-label">STEP 1: Text Projection</text>
+
+  <!-- Arrow from Text to Projection -->
+  <path d="M 450 160 L 450 220" class="arrow"/>
+
+  <!-- Text Projection Box -->
+  <rect x="350" y="220" width="200" height="80" class="operation" rx="5"/>
+  <text x="450" y="245" class="label" text-anchor="middle" font-weight="bold">Linear Projection</text>
+  <text x="450" y="265" class="math" text-anchor="middle">T_proj = W_proj · T_cls</text>
+  <text x="450" y="285" class="small-text" text-anchor="middle">ℝ^768 → ℝ^256</text>
+
+  <!-- Projected Text Output -->
+  <rect x="350" y="320" width="200" height="60" class="text-box" rx="5"/>
+  <text x="450" y="345" class="math" text-anchor="middle">T_proj ∈ ℝ^256</text>
+  <text x="450" y="365" class="small-text" text-anchor="middle">Semantic embedding</text>
+
+  <!-- Arrow -->
+  <path d="M 450 300 L 450 320" class="arrow"/>
+
+  <!-- ========== STEP 2: BROADCAST ========== -->
+  <text x="50" y="420" class="step-label">STEP 2: Broadcast to All Nodes</text>
+
+  <!-- Arrow from projection to broadcast -->
+  <path d="M 450 380 L 450 435" class="thick-arrow"/>
+
+  <!-- Broadcast Operation -->
+  <rect x="300" y="435" width="300" height="70" class="highlight-box" rx="5"/>
+  <text x="450" y="460" class="label" text-anchor="middle" font-weight="bold">Broadcast (Repeat N times)</text>
+  <text x="450" y="480" class="math" text-anchor="middle">T_broadcast = Repeat(T_proj, N)</text>
+  <text x="450" y="495" class="small-text" text-anchor="middle">ℝ^256 → ℝ^(N×256)</text>
+
+  <!-- Merge Node Features -->
+  <path d="M 150 160 L 150 540 L 250 540" class="arrow"/>
+  <path d="M 450 505 L 450 540 L 350 540" class="thick-arrow"/>
+
+  <!-- Combined Features -->
+  <rect x="250" y="520" width="100" height="40" class="box" rx="3"/>
+  <text x="300" y="545" class="small-text" text-anchor="middle">Concatenate</text>
+
+  <!-- ========== STEP 3: GATED FUSION ========== -->
+  <text x="50" y="600" class="step-label">STEP 3: Adaptive Gated Fusion</text>
+
+  <!-- Arrow to gating -->
+  <path d="M 300 560 L 300 615" class="arrow"/>
+
+  <!-- Gate Computation -->
+  <rect x="50" y="615" width="250" height="90" class="highlight-box" rx="5"/>
+  <text x="175" y="640" class="label" text-anchor="middle" font-weight="bold">Gate Computation</text>
+  <text x="175" y="660" class="math" text-anchor="middle">α_i = σ(W_gate · [h_i ⊕ T_proj])</text>
+  <text x="175" y="680" class="small-text" text-anchor="middle">Per-node adaptive weight</text>
+  <text x="175" y="695" class="small-text" text-anchor="middle">α_i ∈ [0, 1]</text>
+
+  <!-- Fusion Operation -->
+  <rect x="350" y="615" width="250" height="90" class="highlight-box" rx="5"/>
+  <text x="475" y="640" class="label" text-anchor="middle" font-weight="bold">Weighted Fusion</text>
+  <text x="475" y="660" class="math" text-anchor="middle">h'_i = α_i · h_i + (1-α_i) · T_proj</text>
+  <text x="475" y="680" class="small-text" text-anchor="middle">Balance graph & text</text>
+  <text x="475" y="695" class="small-text" text-anchor="middle">Element-wise fusion</text>
+
+  <!-- Arrow connecting gate and fusion -->
+  <path d="M 300 660 L 350 660" class="thick-arrow"/>
+
+  <!-- ========== STEP 4: LAYER NORM + RESIDUAL ========== -->
+  <text x="650" y="600" class="step-label">STEP 4: Normalize</text>
+
+  <!-- Arrow to normalization -->
+  <path d="M 600 660 L 750 660" class="arrow"/>
+
+  <!-- Layer Normalization -->
+  <rect x="650" y="615" width="280" height="90" class="operation" rx="5"/>
+  <text x="790" y="640" class="label" text-anchor="middle" font-weight="bold">Layer Norm + Residual</text>
+  <text x="790" y="660" class="math" text-anchor="middle">H_output = LayerNorm(h' + h)</text>
+  <text x="790" y="680" class="small-text" text-anchor="middle">Preserve information</text>
+  <text x="790" y="695" class="small-text" text-anchor="middle">Stabilize training</text>
+
+  <!-- Residual connection arrow -->
+  <path d="M 150 540 L 700 540 L 700 615" class="arrow" stroke-dasharray="5,5"/>
+  <text x="420" y="535" class="small-text">Residual Connection</text>
+
+  <!-- ========== OUTPUT ========== -->
+  <text x="50" y="745" class="step-label">OUTPUT:</text>
+
+  <!-- Arrow to output -->
+  <path d="M 790 705 L 790 750" class="thick-arrow"/>
+
+  <!-- Output Box -->
+  <rect x="650" y="750" width="280" height="60" class="graph-box" rx="5"/>
+  <text x="790" y="775" class="label" text-anchor="middle" font-weight="bold">Semantically-Guided Features</text>
+  <text x="790" y="795" class="math" text-anchor="middle">H_guided^(L+1) ∈ ℝ^(N×256)</text>
+
+  <!-- ========== ANNOTATIONS ========== -->
+  <!-- Key Innovation Box -->
+  <rect x="650" y="80" width="320" height="130" fill="#fff3e0" stroke="#e65100" stroke-width="2" rx="5"/>
+  <text x="810" y="105" class="label" text-anchor="middle" font-weight="bold" fill="#e65100">🔑 Key Innovation</text>
+  <text x="670" y="130" class="small-text">✓ Inject semantics during encoding</text>
+  <text x="670" y="150" class="small-text">✓ Adaptive per-node gating (α)</text>
+  <text x="670" y="170" class="small-text">✓ Preserve graph structure</text>
+  <text x="670" y="190" class="small-text">✓ Better than late fusion!</text>
+
+  <!-- Example Values -->
+  <rect x="50" y="440" width="220" height="60" fill="#e0f7fa" stroke="#00838f" stroke-width="1.5" rx="3"/>
+  <text x="160" y="460" class="small-text" text-anchor="middle" font-weight="bold">Example:</text>
+  <text x="160" y="477" class="small-text" text-anchor="middle">SiO₂: α ≈ 0.7 (high text weight)</text>
+  <text x="160" y="492" class="small-text" text-anchor="middle">Complex alloy: α ≈ 0.3 (low text)</text>
+
+</svg>
