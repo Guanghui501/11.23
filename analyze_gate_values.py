@@ -543,8 +543,10 @@ def main():
     parser = argparse.ArgumentParser(description='分析和可视化门控值')
     parser.add_argument('--checkpoint', type=str, required=True,
                        help='模型checkpoint路径')
-    parser.add_argument('--dataset', type=str, default='jarvis/mbj_bandgap',
-                       help='数据集名称')
+    parser.add_argument('--dataset', type=str, default='dft_3d',
+                       help='JARVIS数据集名称 (dft_3d, dft_2d等)')
+    parser.add_argument('--target', type=str, default='mbj_bandgap',
+                       help='目标性质名称')
     parser.add_argument('--batch_size', type=int, default=32,
                        help='批次大小')
     parser.add_argument('--n_samples', type=int, default=500,
@@ -592,11 +594,11 @@ def main():
 
     # 2. 加载数据
     print(f"\n📊 加载数据集: {args.dataset}")
-    dataset_name, target = args.dataset.split('/')
+    print(f"   目标性质: {args.target}")
 
     train_loader, val_loader, test_loader, _ = get_train_val_loaders(
-        dataset=dataset_name,
-        target=target,
+        dataset=args.dataset,
+        target=args.target,
         batch_size=args.batch_size,
         workers=0,
         pin_memory=False

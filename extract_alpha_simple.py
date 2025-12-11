@@ -255,7 +255,10 @@ def quick_visualize(alpha_data, save_path):
 def main():
     parser = argparse.ArgumentParser(description='简化α值提取')
     parser.add_argument('--checkpoint', type=str, required=True)
-    parser.add_argument('--dataset', type=str, default='mbj_bandgap')
+    parser.add_argument('--dataset', type=str, default='dft_3d',
+                       help='JARVIS数据集名称 (dft_3d, dft_2d等)')
+    parser.add_argument('--target', type=str, default='mbj_bandgap',
+                       help='目标性质名称')
     parser.add_argument('--n_samples', type=int, default=100)
     parser.add_argument('--output', type=str, default='alpha_values.npz')
     parser.add_argument('--visualize', action='store_true',
@@ -269,10 +272,11 @@ def main():
 
     # 加载数据
     print(f"\n📊 加载数据集: {args.dataset}")
+    print(f"   目标性质: {args.target}")
 
     train_loader, val_loader, test_loader, _ = get_train_val_loaders(
-        dataset='jarvis',
-        target=args.dataset,
+        dataset=args.dataset,
+        target=args.target,
         batch_size=16,
         workers=0,
         pin_memory=False

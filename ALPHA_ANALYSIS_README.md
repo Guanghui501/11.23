@@ -40,7 +40,8 @@ h'_i = α_i · h_i + (1 - α_i) · T_proj  # 加权融合
 ```bash
 python extract_alpha_simple.py \
   --checkpoint output_100epochs_42_bs64_fullmodel_gate_cross/mbj_bandgap/best_test_model.pt \
-  --dataset mbj_bandgap \
+  --dataset dft_3d \
+  --target mbj_bandgap \
   --n_samples 500 \
   --output alpha_values.npz \
   --visualize
@@ -67,7 +68,8 @@ python extract_alpha_simple.py \
 ```bash
 python analyze_gate_values.py \
   --checkpoint best_test_model.pt \
-  --dataset jarvis/mbj_bandgap \
+  --dataset dft_3d \
+  --target mbj_bandgap \
   --n_samples 500 \
   --output_dir alpha_analysis/
 ```
